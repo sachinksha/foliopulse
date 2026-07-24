@@ -839,6 +839,29 @@ styled_df = df_table[display_cols].style.map(
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 
+st.sidebar.divider()
+
+# --- END-OF-DAY JOURNAL CSV EXPORT (SIDEBAR) ---
+st.sidebar.subheader("📥 Journal Export")
+
+# Prepare clean DataFrame for trading journal export
+journal_df = df_table[display_cols].copy()
+journal_df["Journal Comments"] = ""  # Dedicated column for trade notes
+
+today_stamp = datetime.now().strftime("%Y-%m-%d")
+csv_data = journal_df.to_csv(index=False).encode("utf-8")
+
+st.sidebar.download_button(
+    label=f"📥 Export EOD Journal ({today_stamp})",
+    data=csv_data,
+    file_name=f"foliopulse_journal_{today_stamp}.csv",
+    mime="text/csv",
+    help="Download your end-of-day summary with a dedicated column for journal comments.",
+    use_container_width=True,
+)
+
+st.sidebar.divider()
+
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
