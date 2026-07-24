@@ -2,6 +2,7 @@
 
 **FolioPulse** is a real-time portfolio tracking and visual risk management dashboard designed for Indian stock market traders and investors (NSE/BSE). Built with **Streamlit**, **Plotly**, and **yfinance**, it combines live P&L analytics with interactive 10-day candlestick charts that feature overlaid entry, stop-loss, and profit target levels.
 
+App is live, go to - https://foliopulse.streamlit.app/
 ---
 
 ## ✨ Key Features
