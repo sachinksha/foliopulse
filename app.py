@@ -897,6 +897,7 @@ def create_candlestick_chart(row):
     ltp_align_date = dates[min(mid_idx + 2, len(dates) - 1)]
 
     for item in horizontal_levels:
+        # Full Horizontal Level Line
         fig.add_trace(
             go.Scatter(
                 x=[dates[0], dates[-1]],
@@ -909,6 +910,7 @@ def create_candlestick_chart(row):
             )
         )
 
+        # Center Line Badge
         if item["name"] != "BUY":
             badge_x = ltp_align_date if item["name"] == "LTP" else align_date
             badge_text = f" <b>{item['name']}</b> "
@@ -937,6 +939,7 @@ def create_candlestick_chart(row):
                 xanchor="center",
             )
 
+        # Y-Axis Price Badge
         fig.add_annotation(
             xref="paper",
             x=1.002,
@@ -949,6 +952,7 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
+    # BUY Entry P&L Badge
     if buy_val > 0 and qty > 0:
         fig.add_annotation(
             x=align_date,
@@ -984,8 +988,6 @@ def create_candlestick_chart(row):
             text=f"<b>{row['Symbol']}</b> ({row['Status']}) | Live LTP: <span style='color:#FF0000;'><b>₹{row['LTP (₹)']}</b></span>",
             font=dict(size=15),
         ),
-        # Disables snapping tooltips so crosshair moves freely across empty chart space
-        hovermode="closest",
         xaxis=dict(
             type="category",
             rangeslider=dict(visible=False),
@@ -994,13 +996,6 @@ def create_candlestick_chart(row):
             linewidth=1.5,
             linecolor="#64748B",
             mirror=True,
-            # --- NATIVE X-AXIS DATED CALLOUT PILL ---
-            showspikes=True,
-            spikemode="across+toaxis",   # Draws crosshair line + axis callout pill
-            spikesnap="cursor",          # Moves smoothly with mouse pointer
-            spikecolor="#333333",
-            spikethickness=1,
-            spikedash="dash",
         ),
         yaxis=dict(
             title=dict(text="Price (₹)", font=dict(size=11)),
@@ -1013,28 +1008,14 @@ def create_candlestick_chart(row):
             linewidth=1.5,
             linecolor="#64748B",
             mirror=True,
-            # --- NATIVE Y-AXIS PRICE CALLOUT PILL ---
-            showspikes=True,
-            spikemode="across+toaxis",   # Draws crosshair line + axis callout pill
-            spikesnap="cursor",          # Moves smoothly with mouse pointer
-            spikecolor="#333333",
-            spikethickness=1,
-            spikedash="dash",
         ),
         height=360,
         showlegend=False,
-        # Styles Plotly's native axis callout pills in dark TradingView style
-        hoverlabel=dict(
-            bgcolor="#18181B",           # Dark black badge background
-            font_color="#FFFFFF",         # Pure white text
-            font_size=11,
-            font_family="monospace",
-        ),
-        margin=dict(l=15, r=70, t=35, b=25),
+        hoverlabel=dict(font_size=13),
+        margin=dict(l=15, r=70, t=35, b=20),
     )
 
     return fig
-
 
 # --- CHARTS RENDER SECTION ---
 st.markdown(
