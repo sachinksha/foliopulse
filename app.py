@@ -23,11 +23,9 @@ st.set_page_config(
 )
 
 # --- INJECT CUSTOM CSS FOR TOP HEADER TITLE, CARD BORDERS, & COMPACT LAYOUT ---
-# --- INJECT CUSTOM CSS WITH FIXED PROMINENT BORDERS ---
 st.markdown(
     """
     <style>
-        /* Header Title injected into Streamlit's top header bar */
         header[data-testid="stHeader"]::before {
             content: "📈 FolioPulse — Live Portfolio & Risk Monitor";
             position: absolute;
@@ -42,7 +40,6 @@ st.markdown(
             font-family: Source Sans Pro, sans-serif;
         }
 
-        /* Container Padding */
         .block-container {
             padding-top: 2.8rem !important;
             padding-bottom: 0.5rem !important;
@@ -55,7 +52,6 @@ st.markdown(
             gap: 0.3rem !important;
         }
 
-        /* Metric Cards */
         div[data-testid="stMetricValue"] {
             font-size: 1.25rem !important;
         }
@@ -63,23 +59,11 @@ st.markdown(
             font-size: 0.8rem !important;
         }
 
-        /* Mobile Scrollable Table */
         div[data-testid="stDataFrame"] {
             width: 100% !important;
             overflow-x: auto !important;
         }
 
-        /* FIXED: Prominent Card Outline Border for Plotly Charts */
-        .chart-card {
-            border: 1.5px solid #64748B !important;  /* Slate border visible in Light & Dark mode */
-            border-radius: 10px !important;
-            padding: 8px 10px 4px 10px !important;    /* Inset padding prevents plot overlap */
-            margin: 4px 2px 10px 2px !important;     /* Prevents clipping on all 4 sides */
-            box-sizing: border-box !important;
-            background-color: transparent !important;
-        }
-
-        /* Section Subheader */
         .section-subhdr {
             font-size: 1.05rem !important;
             font-weight: 600;
@@ -189,16 +173,13 @@ def is_market_open():
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
 
-    # 1. Weekend check (5 = Saturday, 6 = Sunday)
     if now.weekday() in (5, 6):
         return False, "Weekend (Market Closed)"
 
-    # 2. NSE Trading Holiday check
     date_str = now.strftime("%Y-%m-%d")
     if date_str in NSE_HOLIDAYS_2026:
         return False, "NSE Trading Holiday"
 
-    # 3. Market trading hours check (09:15 AM to 03:30 PM IST)
     time_minutes = now.hour * 60 + now.minute
     open_minutes = 9 * 60 + 15
     close_minutes = 15 * 60 + 30
@@ -214,6 +195,13 @@ def is_market_open():
 # --- SIDEBAR CONTROLS & MANAGEMENT ---
 st.sidebar.title("⚙️ Controls")
 
+# Master Switch: Manual Override
+manual_override_active = st.sidebar.toggle(
+    "🟡 Enable Manual Price Override",
+    value=False,
+    help="When ON, live polling is paused and user-fed prices take total priority.",
+)
+
 market_is_open, market_reason = is_market_open()
 
 refresh_rate = st.sidebar.slider(
@@ -221,14 +209,20 @@ refresh_rate = st.sidebar.slider(
     min_value=5,
     max_value=60,
     value=10,
+    disabled=manual_override_active,
 )
 
-# Auto-default toggle state based on market hours detection
-market_paused = st.sidebar.toggle(
-    "⏸️ Pause Polling (Market Closed)",
-    value=(not market_is_open),
-    help=f"Detected Status: {market_reason}",
-)
+# Auto-pause logic: Paused if Manual Override is ON OR Market is Closed
+if manual_override_active:
+    market_paused = True
+    pause_reason = "MANUAL OVERRIDE ACTIVE"
+else:
+    market_paused = st.sidebar.toggle(
+        "⏸️ Pause Polling (Market Closed)",
+        value=(not market_is_open),
+        help=f"Detected Status: {market_reason}",
+    )
+    pause_reason = market_reason.upper()
 
 st.sidebar.divider()
 st.sidebar.subheader("📊 Chart Format")
@@ -247,17 +241,17 @@ auto_zoom_risk_range = st.sidebar.toggle(
 st.sidebar.divider()
 st.sidebar.subheader("🛠️ Management & Overrides")
 
-# Sidebar Accordion 1: Quick Manual Price Override
-with st.sidebar.expander("✏️ Quick Manual Price Override", expanded=False):
-    st.caption("Feed manual prices if API fails. Set to 0.0 to clear override.")
+# Sidebar Accordion 1: Quick Manual Price Override Inputs
+with st.sidebar.expander("✏️ Quick Manual Price Inputs", expanded=manual_override_active):
+    st.caption("Feed custom prices. Pre-filled with API values when auto-polling runs.")
     for idx, item in enumerate(st.session_state.config["watchlist"]):
         sym_clean = item["symbol"].replace(".NS", "")
-        curr_manual = item.get("manual_ltp", 0.0)
+        curr_manual = float(item.get("manual_ltp", 0.0))
         new_val = st.number_input(
-            f"{sym_clean} LTP Override",
+            f"{sym_clean} Manual LTP (₹)",
             min_value=0.0,
-            value=float(curr_manual),
-            step=1.0,
+            value=curr_manual,
+            step=0.5,
             key=f"manual_{sym_clean}",
         )
         if new_val != curr_manual:
@@ -283,16 +277,20 @@ with st.sidebar.expander("⚙️ Watchlist JSON Editor", expanded=False):
             st.error(f"JSON Error: {err}")
 
 
-# Trigger auto-refresh only when active
+# Trigger auto-refresh only when NOT paused
 if not market_paused:
     count = st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 else:
     count = 0
 
-# Status Banner
-if market_paused:
+# Status Banner Callout
+if manual_override_active:
+    st.warning(
+        "🟡 **MANUAL OVERRIDE ACTIVE**: Automatic API polling is **TOTAL PAUSED**. Portfolio & charts are using user-fed prices."
+    )
+elif market_paused:
     st.error(
-        f"🛑 **LIVE UPDATES PAUSED ({market_reason.upper()})**: Polling is stopped. Toggle OFF in sidebar to force refresh."
+        f"🛑 **LIVE UPDATES PAUSED ({pause_reason})**: Polling is suspended to rest API. Will auto-resume when market opens."
     )
 
 
@@ -318,16 +316,17 @@ def get_10day_history(sym):
     return ltp, df_10d, method
 
 
-def fetch_portfolio_data(watchlist):
+def fetch_portfolio_data(watchlist, use_manual_override):
     now_str = datetime.now().strftime("%H:%M:%S")
     rows = []
     fetch_errors = []
+    config_updated = False
 
     total_invested = sum(
         item["avg_buy_price"] * item["quantity"] for item in watchlist
     )
 
-    for item in watchlist:
+    for idx, item in enumerate(watchlist):
         sym = item["symbol"]
         buy_price = float(item["avg_buy_price"])
         qty = int(item["quantity"])
@@ -339,34 +338,39 @@ def fetch_portfolio_data(watchlist):
 
         invested = buy_price * qty
 
-        try:
-            ltp, df_10d, method = get_10day_history(sym)
-            status = "🟢 Live"
-            updated_time = now_str
+        # Priority Check: Is Manual Override Switch ON?
+        if use_manual_override and manual_ltp > 0:
+            ltp = manual_ltp
+            status = "🟡 Manual"
+            cached = st.session_state.stock_cache.get(sym, {})
+            df_10d = cached.get("df_10d", pd.DataFrame())
+        else:
+            # API Mode Active: Fetch live data & pre-fill manual LTP
+            try:
+                ltp, df_10d, method = get_10day_history(sym)
+                status = "🟢 Live"
+                updated_time = now_str
 
-            st.session_state.stock_cache[sym] = {
-                "ltp": ltp,
-                "df_10d": df_10d,
-                "updated_time": updated_time,
-            }
-        except Exception as err:
-            df_10d = pd.DataFrame()
-            if manual_ltp > 0:
-                ltp = manual_ltp
-                status = "🟡 Manual"
-                updated_time = "User Input"
-                fetch_errors.append(f"**{sym}**: Using **user-fed LTP**: ₹{ltp}")
-            else:
-                cached = st.session_state.stock_cache.get(sym, {})
-                if "ltp" in cached:
-                    ltp = cached["ltp"]
+                # Auto Pre-fill manual_ltp in session config with latest live API price
+                if item.get("manual_ltp") != ltp:
+                    st.session_state.config["watchlist"][idx]["manual_ltp"] = ltp
+                    config_updated = True
+
+                st.session_state.stock_cache[sym] = {
+                    "ltp": ltp,
+                    "df_10d": df_10d,
+                    "updated_time": updated_time,
+                }
+            except Exception as err:
+                df_10d = pd.DataFrame()
+                if manual_ltp > 0:
+                    ltp = manual_ltp
+                    status = "🟡 Manual Fallback"
+                else:
+                    cached = st.session_state.stock_cache.get(sym, {})
+                    ltp = cached.get("ltp", buy_price)
                     df_10d = cached.get("df_10d", df_10d)
                     status = "🔴 Stale"
-                    updated_time = cached.get("updated_time", "N/A")
-                else:
-                    ltp = buy_price
-                    status = "🔴 Unfetched"
-                    updated_time = "Never"
 
                 fetch_errors.append(
                     f"**{sym}**: Fetch failed ({err}). Showing LTP: ₹{ltp}"
@@ -417,10 +421,16 @@ def fetch_portfolio_data(watchlist):
             }
         )
 
+    # Save auto pre-filled values to disk
+    if config_updated and not use_manual_override:
+        save_config(st.session_state.config)
+
     return pd.DataFrame(rows), fetch_errors
 
 
-df, error_logs = fetch_portfolio_data(st.session_state.config["watchlist"])
+df, error_logs = fetch_portfolio_data(
+    st.session_state.config["watchlist"], manual_override_active
+)
 
 if error_logs:
     with st.expander("⚠️ System Logs", expanded=False):
@@ -583,11 +593,11 @@ styled_df = df_table[display_cols].style.map(
     na_rep="-",
 )
 
-# Render main table directly
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
+# --- 10-DAY CANDLESTICK CHART ENGINE WITH SHIFTED LTP & LEVEL P&L CALLOUTS ---
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
 
@@ -640,9 +650,12 @@ def create_candlestick_chart(row):
             continue
         horizontal_levels.append(item)
 
-    # Imaginary Vertical Axis Anchor (Exact Middle Date Column)
+    # Standard Center Date Anchor for SL, TSL, Buy, and Target Badges
     mid_idx = len(dates) // 2
     align_date = dates[mid_idx]
+
+    # Shifted Date Anchor for LTP Badge (2 candles to the right) to eliminate overlap
+    ltp_align_date = dates[min(mid_idx + 2, len(dates) - 1)]
 
     for item in horizontal_levels:
         # 1. Full Horizontal Span Line
@@ -660,10 +673,27 @@ def create_candlestick_chart(row):
 
         # 2. Crisp Opaque White Line Name Badge
         if item["name"] != "BUY":
+            # Shift LTP label to the right relative to other badges
+            badge_x = ltp_align_date if item["name"] == "LTP" else align_date
+
+            # Default text
+            badge_text = f" <b>{item['name']}</b> "
+
+            # Calculate and display P/L and P/L % for Targets and Stop Losses
+            if item["name"] in ["SL", "TSL", "TARGET 1", "TARGET 2"] and buy_val > 0 and qty > 0:
+                lvl_pnl = (item["val"] - buy_val) * qty
+                lvl_pct = ((item["val"] - buy_val) / buy_val) * 100
+                lvl_color = "#00CC96" if lvl_pnl >= 0 else "#FF2B2B"
+                lvl_sign = "+" if lvl_pnl >= 0 else ""
+                badge_text = (
+                    f" <b>{item['name']}</b> | "
+                    f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{lvl_pnl:,.2f} ({lvl_pct:+.1f}%)</b></span> "
+                )
+
             fig.add_annotation(
-                x=align_date,
+                x=badge_x,
                 y=item["val"],
-                text=f" <b>{item['name']}</b> ",
+                text=badge_text,
                 showarrow=False,
                 font=dict(color=item["color"], size=11),
                 bgcolor="#FFFFFF",
@@ -727,10 +757,10 @@ def create_candlestick_chart(row):
             type="category",
             rangeslider=dict(visible=False),
             tickfont=dict(size=11),
-            showline=True,         # Enables Bottom Border
+            showline=True,
             linewidth=1.5,
-            linecolor="#64748B",    # Slate Border Color
-            mirror=True,           # Mirrors line to TOP edge
+            linecolor="#64748B",
+            mirror=True,
         ),
         yaxis=dict(
             title=dict(text="Price (₹)", font=dict(size=11)),
@@ -739,18 +769,19 @@ def create_candlestick_chart(row):
             showgrid=True,
             gridcolor="rgba(200,200,200,0.12)",
             side="right",
-            showline=True,         # Enables Right Border
+            showline=True,
             linewidth=1.5,
-            linecolor="#64748B",    # Slate Border Color
-            mirror=True,           # Mirrors line to LEFT edge
+            linecolor="#64748B",
+            mirror=True,
         ),
         height=360,
         showlegend=False,
         hoverlabel=dict(font_size=13),
-        margin=dict(l=15, r=70, t=35, b=25),
+        margin=dict(l=15, r=70, t=35, b=20),
     )
 
     return fig
+
 
 # --- CHARTS RENDER SECTION ---
 st.markdown(
@@ -765,5 +796,4 @@ cols = st.columns(num_cols)
 for idx, (_, row) in enumerate(stock_rows_only.iterrows()):
     col_idx = idx % num_cols
     with cols[col_idx]:
-        # Render Plotly chart directly — Plotly handles its own 4-side border
         st.plotly_chart(create_candlestick_chart(row), use_container_width=True)
