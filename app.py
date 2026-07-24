@@ -22,7 +22,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# --- INJECT CUSTOM CSS FOR TOP HEADER TITLE, CARD BORDERS, & COMPACT LAYOUT ---
+# --- INJECT CUSTOM CSS ---
 st.markdown(
     """
     <style>
@@ -192,8 +192,240 @@ def is_market_open():
         return False, "Post-Market (Closed 03:30 PM)"
 
 
+# --- AUTO-COMPLETE SEARCH ENGINE VIA YFINANCE ---
+@st.cache_data(ttl=300)
+def search_ticker_symbols(query):
+    """Searches Yahoo Finance API for ticker symbols & company names."""
+    if not query or len(query.strip()) < 2:
+        return []
+    try:
+        search_res = yf.Search(query, max_results=8)
+        quotes = search_res.quotes
+        results = []
+        for q in quotes:
+            symbol = q.get("symbol", "")
+            shortname = q.get("shortname") or q.get("longname") or symbol
+            exch = q.get("exchDisp") or q.get("exchange") or ""
+            if symbol:
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "display": f"{shortname} ({symbol}) — {exch}",
+                    }
+                )
+        return results
+    except Exception as e:
+        logging.error(f"yfinance search failed: {e}")
+        return []
+
+
+# --- MODAL POPUP DIALOG FOR WATCHLIST CONFIG MANAGEMENT ---
+@st.dialog("🛠️ Watchlist & Script Sequence Manager", width="large")
+def open_watchlist_manager():
+    st.markdown("Upload/download configs, reorder scripts using grabbers, or edit rows inline.")
+
+    watchlist = st.session_state.config.get("watchlist", [])
+
+    if "editing_row_idx" not in st.session_state:
+        st.session_state.editing_row_idx = None
+
+    # 1. DOWNLOAD & UPLOAD CONFIG SECTION
+    d_col, u_col = st.columns(2)
+
+    with d_col:
+        config_json_str = json.dumps(st.session_state.config, indent=2)
+        st.download_button(
+            label="📥 Download Config JSON",
+            data=config_json_str,
+            file_name="foliopulse_config.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+
+    with u_col:
+        uploaded_file = st.file_uploader("📤 Upload Config JSON", type=["json"], label_visibility="collapsed")
+        if uploaded_file is not None:
+            try:
+                parsed_config = json.load(uploaded_file)
+                if "watchlist" in parsed_config:
+                    st.session_state.config = parsed_config
+                    save_config(parsed_config)
+                    st.success("Config uploaded and applied!")
+                    st.rerun()
+                else:
+                    st.error("Invalid JSON format: missing 'watchlist' key.")
+            except Exception as err:
+                st.error(f"JSON Parse Error: {err}")
+
+    st.divider()
+    st.subheader("📋 Current Watchlist Sequence")
+
+    if not watchlist:
+        st.info("Watchlist is empty. Add scripts below!")
+    else:
+        # Table Header
+        h_grab, h_sym, h_buy, h_qty, h_risk, h_act, h_del = st.columns(
+            [0.8, 1.8, 1.3, 1.0, 2.2, 1.2, 0.8]
+        )
+        h_grab.caption("Order")
+        h_sym.caption("Symbol")
+        h_buy.caption("Buy Price")
+        h_qty.caption("Qty")
+        h_risk.caption("SL / Targets")
+        h_act.caption("Edit / Save")
+        h_del.caption("Delete")
+
+        for i, item in enumerate(watchlist):
+            c_grab, c_sym, c_buy, c_qty, c_risk, c_act, c_del = st.columns(
+                [0.8, 1.8, 1.3, 1.0, 2.2, 1.2, 0.8]
+            )
+
+            is_editing = st.session_state.editing_row_idx == i
+
+            # --- 1. LEFT GRABBER REORDER BUTTONS ---
+            with c_grab:
+                g1, g2 = st.columns(2)
+                if i > 0:
+                    if g1.button("⣿⬆", key=f"grab_up_{i}", help="Move Up"):
+                        watchlist[i], watchlist[i - 1] = watchlist[i - 1], watchlist[i]
+                        st.session_state.config["watchlist"] = watchlist
+                        save_config(st.session_state.config)
+                        st.rerun()
+                if i < len(watchlist) - 1:
+                    if g2.button("⣿⬇", key=f"grab_dn_{i}", help="Move Down"):
+                        watchlist[i], watchlist[i + 1] = watchlist[i + 1], watchlist[i]
+                        st.session_state.config["watchlist"] = watchlist
+                        save_config(st.session_state.config)
+                        st.rerun()
+
+            # --- 2. ROW CONTENT (READ-ONLY vs EDITABLE CELLS) ---
+            if is_editing:
+                # EDIT MODE
+                edit_sym = c_sym.text_input(
+                    "Symbol", value=item["symbol"], key=f"edit_sym_{i}", label_visibility="collapsed"
+                )
+                edit_buy = c_buy.number_input(
+                    "Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}", label_visibility="collapsed"
+                )
+                edit_qty = c_qty.number_input(
+                    "Qty", value=int(item["quantity"]), step=1, key=f"edit_qty_{i}", label_visibility="collapsed"
+                )
+
+                with c_risk:
+                    r1, r2 = st.columns(2)
+                    edit_sl = r1.number_input("SL", value=float(item.get("stop_loss", 0.0)), step=1.0, key=f"edit_sl_{i}")
+                    edit_tsl = r2.number_input("TSL", value=float(item.get("trailing_sl", 0.0)), step=1.0, key=f"edit_tsl_{i}")
+                    r3, r4 = st.columns(2)
+                    edit_t1 = r3.number_input("T1", value=float(item.get("target_1", 0.0)), step=1.0, key=f"edit_t1_{i}")
+                    edit_t2 = r4.number_input("T2", value=float(item.get("target_2", 0.0)), step=1.0, key=f"edit_t2_{i}")
+
+                # Save and Cancel Buttons
+                with c_act:
+                    b_save, b_cancel = st.columns(2)
+                    if b_save.button("💾", key=f"save_btn_{i}", help="Save changes"):
+                        watchlist[i] = {
+                            "symbol": edit_sym.upper().strip(),
+                            "avg_buy_price": float(edit_buy),
+                            "quantity": int(edit_qty),
+                            "stop_loss": float(edit_sl),
+                            "trailing_sl": float(edit_tsl),
+                            "target_1": float(edit_t1),
+                            "target_2": float(edit_t2),
+                            "manual_ltp": float(item.get("manual_ltp", edit_buy)),
+                        }
+                        st.session_state.config["watchlist"] = watchlist
+                        save_config(st.session_state.config)
+                        st.session_state.editing_row_idx = None
+                        st.rerun()
+
+                    if b_cancel.button("❌", key=f"cancel_btn_{i}", help="Cancel edit"):
+                        st.session_state.editing_row_idx = None
+                        st.rerun()
+
+            else:
+                # READ-ONLY MODE
+                sym_clean = item["symbol"].replace(".NS", "")
+                c_sym.markdown(f"**{i+1}. {sym_clean}**\n`{item['symbol']}`")
+                c_buy.markdown(f"₹{item['avg_buy_price']:,.2f}")
+                c_qty.markdown(f"{item['quantity']}")
+                c_risk.markdown(
+                    f"<small>SL: ₹{item.get('stop_loss',0)} | TSL: ₹{item.get('trailing_sl',0)}<br>"
+                    f"T1: ₹{item.get('target_1',0)} | T2: ₹{item.get('target_2',0)}</small>",
+                    unsafe_allow_html=True,
+                )
+
+                if c_act.button("✏️", key=f"pencil_btn_{i}", help="Edit row"):
+                    st.session_state.editing_row_idx = i
+                    st.rerun()
+
+            # --- 3. DELETE BUTTON ---
+            if c_del.button("🗑️", key=f"del_{i}", help="Delete script"):
+                watchlist.pop(i)
+                st.session_state.config["watchlist"] = watchlist
+                save_config(st.session_state.config)
+                if st.session_state.editing_row_idx == i:
+                    st.session_state.editing_row_idx = None
+                st.rerun()
+
+    st.divider()
+    st.subheader("➕ Add New Script (Auto-Complete Search)")
+
+    search_query = st.text_input(
+        "Search Symbol or Company Name (e.g., Reliance, Tata, INFY, AAPL)",
+        key="script_search_input",
+    )
+
+    selected_symbol = ""
+    if search_query:
+        search_results = search_ticker_symbols(search_query)
+        if search_results:
+            options_dict = {item["display"]: item["symbol"] for item in search_results}
+            selected_display = st.selectbox(
+                "Select matching script from Yahoo Finance:",
+                options=list(options_dict.keys()),
+            )
+            selected_symbol = options_dict[selected_display]
+        else:
+            st.warning("No ticker results found. Enter ticker manually below.")
+            selected_symbol = search_query.upper().strip()
+
+    with st.form("add_script_form"):
+        add_sym = st.text_input("Ticker Symbol", value=selected_symbol)
+        ac1, ac2 = st.columns(2)
+        add_buy = ac1.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0)
+        add_qty = ac2.number_input("Quantity", min_value=1, value=10, step=1)
+
+        rc1, rc2, rc3, rc4 = st.columns(4)
+        add_sl = rc1.number_input("Stop Loss (₹)", min_value=0.0, step=1.0)
+        add_tsl = rc2.number_input("Trailing SL (₹)", min_value=0.0, step=1.0)
+        add_t1 = rc3.number_input("Target 1 (₹)", min_value=0.0, step=1.0)
+        add_t2 = rc4.number_input("Target 2 (₹)", min_value=0.0, step=1.0)
+
+        submitted = st.form_submit_button("➕ Add Script to Watchlist", type="primary")
+        if submitted and add_sym:
+            new_item = {
+                "symbol": add_sym.upper().strip(),
+                "avg_buy_price": float(add_buy),
+                "quantity": int(add_qty),
+                "stop_loss": float(add_sl),
+                "trailing_sl": float(add_tsl),
+                "target_1": float(add_t1),
+                "target_2": float(add_t2),
+                "manual_ltp": float(add_buy),
+            }
+            st.session_state.config["watchlist"].append(new_item)
+            save_config(st.session_state.config)
+            st.success(f"Added {add_sym} to watchlist!")
+            st.rerun()
+
+
 # --- SIDEBAR CONTROLS & MANAGEMENT ---
 st.sidebar.title("⚙️ Controls")
+
+if st.sidebar.button("⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True):
+    open_watchlist_manager()
+
+st.sidebar.divider()
 
 # Master Switch: Manual Override
 manual_override_active = st.sidebar.toggle(
@@ -212,7 +444,6 @@ refresh_rate = st.sidebar.slider(
     disabled=manual_override_active,
 )
 
-# Auto-pause logic: Paused if Manual Override is ON OR Market is Closed
 if manual_override_active:
     market_paused = True
     pause_reason = "MANUAL OVERRIDE ACTIVE"
@@ -239,9 +470,8 @@ auto_zoom_risk_range = st.sidebar.toggle(
 )
 
 st.sidebar.divider()
-st.sidebar.subheader("🛠️ Management & Overrides")
+st.sidebar.subheader("🛠️ Quick Manual Price Inputs")
 
-# Sidebar Accordion 1: Quick Manual Price Override Inputs
 with st.sidebar.expander("✏️ Quick Manual Price Inputs", expanded=manual_override_active):
     st.caption("Feed custom prices. Pre-filled with API values when auto-polling runs.")
     for idx, item in enumerate(st.session_state.config["watchlist"]):
@@ -259,31 +489,12 @@ with st.sidebar.expander("✏️ Quick Manual Price Inputs", expanded=manual_ove
             save_config(st.session_state.config)
             st.rerun()
 
-# Sidebar Accordion 2: Config JSON Editor
-with st.sidebar.expander("⚙️ Watchlist JSON Editor", expanded=False):
-    config_str = st.text_area(
-        "Config JSON",
-        value=json.dumps(st.session_state.config, indent=2),
-        height=180,
-    )
-    if st.button("💾 Save Config JSON", type="primary"):
-        try:
-            parsed = json.loads(config_str)
-            st.session_state.config = parsed
-            save_config(parsed)
-            st.success("Config saved!")
-            st.rerun()
-        except Exception as err:
-            st.error(f"JSON Error: {err}")
 
-
-# Trigger auto-refresh only when NOT paused
 if not market_paused:
     count = st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 else:
     count = 0
 
-# Status Banner Callout
 if manual_override_active:
     st.warning(
         "🟡 **MANUAL OVERRIDE ACTIVE**: Automatic API polling is **TOTAL PAUSED**. Portfolio & charts are using user-fed prices."
@@ -338,20 +549,17 @@ def fetch_portfolio_data(watchlist, use_manual_override):
 
         invested = buy_price * qty
 
-        # Priority Check: Is Manual Override Switch ON?
         if use_manual_override and manual_ltp > 0:
             ltp = manual_ltp
             status = "🟡 Manual"
             cached = st.session_state.stock_cache.get(sym, {})
             df_10d = cached.get("df_10d", pd.DataFrame())
         else:
-            # API Mode Active: Fetch live data & pre-fill manual LTP
             try:
                 ltp, df_10d, method = get_10day_history(sym)
                 status = "🟢 Live"
                 updated_time = now_str
 
-                # Auto Pre-fill manual_ltp in session config with latest live API price
                 if item.get("manual_ltp") != ltp:
                     st.session_state.config["watchlist"][idx]["manual_ltp"] = ltp
                     config_updated = True
@@ -421,7 +629,6 @@ def fetch_portfolio_data(watchlist, use_manual_override):
             }
         )
 
-    # Save auto pre-filled values to disk
     if config_updated and not use_manual_override:
         save_config(st.session_state.config)
 
@@ -597,7 +804,6 @@ st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
-# --- 10-DAY CANDLESTICK CHART ENGINE WITH SHIFTED LTP & LEVEL P&L CALLOUTS ---
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
 
@@ -650,15 +856,11 @@ def create_candlestick_chart(row):
             continue
         horizontal_levels.append(item)
 
-    # Standard Center Date Anchor for SL, TSL, Buy, and Target Badges
     mid_idx = len(dates) // 2
     align_date = dates[mid_idx]
-
-    # Shifted Date Anchor for LTP Badge (2 candles to the right) to eliminate overlap
     ltp_align_date = dates[min(mid_idx + 2, len(dates) - 1)]
 
     for item in horizontal_levels:
-        # 1. Full Horizontal Span Line
         fig.add_trace(
             go.Scatter(
                 x=[dates[0], dates[-1]],
@@ -671,15 +873,10 @@ def create_candlestick_chart(row):
             )
         )
 
-        # 2. Crisp Opaque White Line Name Badge
         if item["name"] != "BUY":
-            # Shift LTP label to the right relative to other badges
             badge_x = ltp_align_date if item["name"] == "LTP" else align_date
-
-            # Default text
             badge_text = f" <b>{item['name']}</b> "
 
-            # Calculate and display P/L and P/L % for Targets and Stop Losses
             if item["name"] in ["SL", "TSL", "TARGET 1", "TARGET 2"] and buy_val > 0 and qty > 0:
                 lvl_pnl = (item["val"] - buy_val) * qty
                 lvl_pct = ((item["val"] - buy_val) / buy_val) * 100
@@ -704,7 +901,6 @@ def create_candlestick_chart(row):
                 xanchor="center",
             )
 
-        # 3. Y-Axis Price Tag
         fig.add_annotation(
             xref="paper",
             x=1.002,
@@ -717,7 +913,6 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    # 4. BUY P&L Badge
     if buy_val > 0 and qty > 0:
         fig.add_annotation(
             x=align_date,
