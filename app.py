@@ -984,6 +984,7 @@ def create_candlestick_chart(row):
             text=f"<b>{row['Symbol']}</b> ({row['Status']}) | Live LTP: <span style='color:#FF0000;'><b>₹{row['LTP (₹)']}</b></span>",
             font=dict(size=15),
         ),
+        hovermode="closest",  # Enables free cursor movement across both axes
         xaxis=dict(
             type="category",
             rangeslider=dict(visible=False),
@@ -992,6 +993,12 @@ def create_candlestick_chart(row):
             linewidth=1.5,
             linecolor="#64748B",
             mirror=True,
+            showspikes=True,
+            spikemode="across",
+            spikesnap="cursor",  # Free mouse cursor tracking
+            spikecolor="#475569",
+            spikethickness=1,
+            spikedash="dash",
         ),
         yaxis=dict(
             title=dict(text="Price (₹)", font=dict(size=11)),
@@ -1004,15 +1011,129 @@ def create_candlestick_chart(row):
             linewidth=1.5,
             linecolor="#64748B",
             mirror=True,
+            showspikes=True,
+            spikemode="across",
+            spikesnap="cursor",  # Free mouse cursor tracking
+            spikecolor="#475569",
+            spikethickness=1,
+            spikedash="dash",
         ),
         height=360,
         showlegend=False,
-        hoverlabel=dict(font_size=13),
-        margin=dict(l=15, r=70, t=35, b=20),
+        hoverlabel=dict(font_size=12, bgcolor="#FFFFFF"),
+        margin=dict(l=15, r=70, t=35, b=25),
     )
 
     return fig
 
+# --- INJECT DUAL-AXIS PILL ENGINE VIA ST.HTML ---
+st.html(
+    """
+    <script>
+    function attachTradingViewPills() {
+        const doc = window.parent.document;
+        const charts = doc.querySelectorAll('.js-plotly-plot');
+        
+        charts.forEach(chart => {
+            if (chart.dataset.tvPillAttached === "true") return;
+            chart.dataset.tvPillAttached = "true";
+
+            // 1. Create Y-Axis Price Pill (Right)
+            const yPill = doc.createElement('div');
+            yPill.style.position = 'absolute';
+            yPill.style.right = '2px';
+            yPill.style.backgroundColor = '#18181B';
+            yPill.style.color = '#FFFFFF';
+            yPill.style.padding = '2px 6px';
+            yPill.style.fontSize = '11px';
+            yPill.style.fontFamily = 'monospace';
+            yPill.style.fontWeight = 'bold';
+            yPill.style.borderRadius = '3px';
+            yPill.style.display = 'none';
+            yPill.style.zIndex = '99999';
+            yPill.style.pointerEvents = 'none';
+            yPill.style.boxShadow = '0 2px 4px rgba(0,0,0,0.4)';
+
+            // 2. Create X-Axis Date Pill (Bottom)
+            const xPill = doc.createElement('div');
+            xPill.style.position = 'absolute';
+            xPill.style.bottom = '2px';
+            xPill.style.backgroundColor = '#18181B';
+            xPill.style.color = '#FFFFFF';
+            xPill.style.padding = '2px 6px';
+            xPill.style.fontSize = '11px';
+            xPill.style.fontFamily = 'sans-serif';
+            xPill.style.fontWeight = 'bold';
+            xPill.style.borderRadius = '3px';
+            xPill.style.display = 'none';
+            xPill.style.zIndex = '99999';
+            xPill.style.pointerEvents = 'none';
+            xPill.style.transform = 'translateX(-50%)';
+            xPill.style.boxShadow = '0 2px 4px rgba(0,0,0,0.4)';
+
+            chart.style.position = 'relative';
+            chart.appendChild(yPill);
+            chart.appendChild(xPill);
+
+            chart.addEventListener('mousemove', function(e) {
+                const rect = chart.getBoundingClientRect();
+                const xPx = e.clientX - rect.left;
+                const yPx = e.clientY - rect.top;
+
+                if (chart._fullLayout && chart._fullLayout.yaxis && chart._fullLayout.xaxis) {
+                    const yaxis = chart._fullLayout.yaxis;
+                    const xaxis = chart._fullLayout.xaxis;
+
+                    const yTop = yaxis._offset;
+                    const yHeight = yaxis._length;
+                    const xLeft = xaxis._offset;
+                    const xWidth = xaxis._length;
+
+                    // --- Y-AXIS PRICE CALCULATION ---
+                    if (yPx >= yTop && yPx <= yTop + yHeight) {
+                        const yFraction = (yPx - yTop) / yHeight;
+                        const yMin = yaxis.range[0];
+                        const yMax = yaxis.range[1];
+                        const priceVal = yMax - yFraction * (yMax - yMin);
+
+                        yPill.innerText = '₹' + priceVal.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+                        yPill.style.top = (yPx - 10) + 'px';
+                        yPill.style.display = 'block';
+                    } else {
+                        yPill.style.display = 'none';
+                    }
+
+                    // --- X-AXIS DATE CALCULATION ---
+                    if (xPx >= xLeft && xPx <= xLeft + xWidth) {
+                        const xFraction = (xPx - xLeft) / xWidth;
+                        const categories = xaxis._categories || [];
+                        if (categories.length > 0) {
+                            const catIdx = Math.min(Math.floor(xFraction * categories.length), categories.length - 1);
+                            if (catIdx >= 0) {
+                                xPill.innerText = categories[catIdx];
+                                xPill.style.left = xPx + 'px';
+                                xPill.style.display = 'block';
+                            }
+                        }
+                    } else {
+                        xPill.style.display = 'none';
+                    }
+                }
+            });
+
+            chart.addEventListener('mouseleave', function() {
+                yPill.style.display = 'none';
+                xPill.style.display = 'none';
+            });
+        });
+    }
+
+    // Attach listener to Plotly charts
+    setInterval(attachTradingViewPills, 500);
+    </script>
+    """,
+    unsafe_allow_javascript=True,
+)
 
 # --- CHARTS RENDER SECTION ---
 st.markdown(
