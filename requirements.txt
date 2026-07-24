@@ -4,3 +4,4 @@ plotly>=5.18.0
 yfinance>=0.2.35
 pytz>=2023.3
 streamlit-autorefresh>=0.0.1
+streamlit-local-storage>=0.0.1

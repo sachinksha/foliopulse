@@ -134,26 +134,62 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config():
-    if not os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(DEFAULT_CONFIG, f, indent=2)
-        return DEFAULT_CONFIG
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"Failed to load config.json: {e}")
-        return DEFAULT_CONFIG
+from streamlit_local_storage import LocalStorage
+
+# Initialize browser local storage helper
+local_storage = LocalStorage()
+
+DEFAULT_CONFIG = {
+    "refresh_seconds": 10,
+    "watchlist": [
+        {
+            "symbol": "M&MFIN.NS",
+            "avg_buy_price": 280.00,
+            "quantity": 100,
+            "stop_loss": 260.00,
+            "trailing_sl": 270.00,
+            "target_1": 310.00,
+            "target_2": 330.00,
+            "manual_ltp": 0.0,
+        },
+        {
+            "symbol": "TITAN.NS",
+            "avg_buy_price": 3400.00,
+            "quantity": 15,
+            "stop_loss": 3200.00,
+            "trailing_sl": 3300.00,
+            "target_1": 3700.00,
+            "target_2": 3900.00,
+            "manual_ltp": 3450.00,
+        },
+    ],
+}
+
+from streamlit_local_storage import LocalStorage
+
+local_storage = LocalStorage()
+
+# --- PER-USER SESSION INITIALIZATION (WITH LOCAL STORAGE) ---
+def init_user_config():
+    if "config" not in st.session_state:
+        saved_browser_config = local_storage.getItem("foliopulse_user_config")
+        if saved_browser_config:
+            try:
+                st.session_state.config = json.loads(saved_browser_config)
+            except Exception:
+                st.session_state.config = json.loads(json.dumps(DEFAULT_CONFIG))
+        else:
+            st.session_state.config = json.loads(json.dumps(DEFAULT_CONFIG))
 
 
 def save_config(config_dict):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config_dict, f, indent=2)
+    """Saves config ONLY to current user session & browser localStorage."""
+    st.session_state.config = config_dict
+    local_storage.setItem("foliopulse_user_config", json.dumps(config_dict))
 
 
-if "config" not in st.session_state:
-    st.session_state.config = load_config()
+# Initialize on app run
+init_user_config()
 
 if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
