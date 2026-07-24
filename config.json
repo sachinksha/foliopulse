@@ -2,54 +2,24 @@
   "refresh_seconds": 10,
   "watchlist": [
     {
-      "symbol": "M&MFIN.NS",
-      "avg_buy_price": 374.0,
-      "quantity": 2700,
-      "stop_loss": 322.0,
-      "trailing_sl": 322.0,
-      "target_1": 395.0,
-      "target_2": 405.0,
-      "manual_ltp": 356.5
+      "symbol": "RELIANCE.NS",
+      "avg_buy_price": 1200.0,
+      "quantity": 10,
+      "stop_loss": 850.0,
+      "trailing_sl": 850.0,
+      "target_1": 1400.0,
+      "target_2": 1480.0,
+      "manual_ltp": 1278.0
     },
     {
-      "symbol": "TITAN.NS",
-      "avg_buy_price": 4723.73,
-      "quantity": 211,
-      "stop_loss": 4573.5,
-      "trailing_sl": 4573.5,
-      "target_1": 4900.0,
-      "target_2": 4920.0,
-      "manual_ltp": 4677.0
-    },
-    {
-      "symbol": "ABB.NS",
-      "avg_buy_price": 7642.0,
-      "quantity": 45,
-      "stop_loss": 7217,
-      "trailing_sl": 7217.0,
-      "target_1": 7820.0,
-      "target_2": 7850.0,
-      "manual_ltp": 7375.5
-    },
-    {
-      "symbol": "NESTLEIND.NS",
-      "avg_buy_price": 1498.13,
-      "quantity": 250,
-      "stop_loss": 1414.0,
-      "trailing_sl": 1414.0,
-      "target_1": 1600.0,
-      "target_2": 1620.0,
-      "manual_ltp": 1443.5
-    },
-    {
-      "symbol": "HCLTECH.NS",
-      "avg_buy_price": 1257.0,
-      "quantity": 15,
-      "stop_loss": 1200.0,
-      "trailing_sl": 1200.0,
-      "target_1": 1320.0,
-      "target_2": 1350.0,
-      "manual_ltp": 1271.0
+      "symbol": "LT.NS",
+      "avg_buy_price": 3885.25,
+      "quantity": 10,
+      "stop_loss": 3685.25,
+      "trailing_sl": 3685.25,
+      "target_1": 3985.25,
+      "target_2": 3985.25,
+      "manual_ltp": 3785.6
     }
   ]
 }
