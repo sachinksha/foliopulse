@@ -1,0 +1,30 @@
+{
+  "refresh_seconds": 10,
+  "watchlist": [
+    {
+      "symbol": "M&MFIN.NS",
+      "avg_buy_price": 374.00,
+      "quantity": 2700
+    },
+    {
+      "symbol": "TITAN.NS",
+      "avg_buy_price": 4723.73,
+      "quantity": 211
+    },
+    {
+      "symbol": "ABB.NS",
+      "avg_buy_price": 7642.00,
+      "quantity": 45
+    },
+    {
+      "symbol": "NESTLEIND.NS",
+      "avg_buy_price": 1498.13,
+      "quantity": 250
+    },
+    {
+      "symbol": "HCLTECH.NS",
+      "avg_buy_price": 1257.00,
+      "quantity": 15
+    }
+  ]
+}
