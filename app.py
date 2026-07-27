@@ -930,18 +930,29 @@ def create_candlestick_chart(row):
     pnl_color = "#00CC96" if pnl >= 0 else "#FF2B2B"
     pnl_sign = "+" if pnl >= 0 else ""
 
+    t1_val = float(row.get("Target 1", 0.0))
+    t2_val = float(row.get("Target 2", 0.0))
+
     raw_levels = [
         {"name": "SL", "val": sl_val, "color": "#FF872B", "dash": "dash", "width": 1.5},
         {"name": "TSL", "val": tsl_val, "color": "#77671F", "dash": "dash", "width": 1.5},
         {"name": "BUY", "val": buy_val, "color": "#1F77B4", "dash": "solid", "width": 2.0},
         {"name": "LTP", "val": ltp_val, "color": "#FF0000", "dash": "dot", "width": 2.0},
-        {"name": "TARGET 1", "val": float(row.get("Target 1", 0.0)), "color": "#00CC96", "dash": "dash", "width": 1.5},
-        {"name": "TARGET 2", "val": float(row.get("Target 2", 0.0)), "color": "#00FF7F", "dash": "dash", "width": 1.5},
+        {"name": "TARGET 1", "val": t1_val, "color": "#00CC96", "dash": "dash", "width": 1.5},
+        {"name": "TARGET 2", "val": t2_val, "color": "#00FF7F", "dash": "dash", "width": 1.5},
     ]
 
-    horizontal_levels = [
-        item for item in raw_levels if item["val"] > 0 and not (item["name"] == "TSL" and sl_val > 0 and abs(tsl_val - sl_val) < 0.01)
-    ]
+    horizontal_levels = []
+    for item in raw_levels:
+        if item["val"] <= 0:
+            continue
+        # Skip TSL if it overlaps with SL
+        if item["name"] == "TSL" and sl_val > 0 and abs(tsl_val - sl_val) < 0.01:
+            continue
+        # Skip TARGET 2 if it's identical to TARGET 1
+        if item["name"] == "TARGET 2" and t1_val > 0 and abs(t2_val - t1_val) < 0.01:
+            continue
+        horizontal_levels.append(item)
 
     mid_idx = len(dates) // 2
     align_date = dates[mid_idx]
