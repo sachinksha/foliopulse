@@ -119,15 +119,6 @@ st.markdown(
             font-size: {0.95 * fs_chart:.2f}rem;
             font-weight: 700;
         }}
-        /* Dynamic Canvas & Header Font Scaling for Main Table */
-        div[data-testid="stDataFrame"] * {{
-            font-size: {1.15 * fs_table:.2f}rem !important;
-        }}
-
-        div[data-testid="stDataFrame"] [role="columnheader"] * {{
-            font-size: {1.2 * fs_table:.2f}rem !important;
-            font-weight: 800 !important;
-        }}
     </style>
 """,
     unsafe_allow_html=True,
@@ -228,6 +219,32 @@ def is_market_open():
         return False, "Pre-Market (Opens 09:15 AM)"
     else:
         return False, "Post-Market (Closed 03:30 PM)"
+
+
+# --- AUTO-COMPLETE SEARCH ENGINE VIA YFINANCE ---
+@st.cache_data(ttl=300)
+def search_ticker_symbols(query):
+    if not query or len(query.strip()) < 2:
+        return []
+    try:
+        search_res = yf.Search(query, max_results=8)
+        quotes = search_res.quotes
+        results = []
+        for q in quotes:
+            symbol = q.get("symbol", "")
+            shortname = q.get("shortname") or q.get("longname") or symbol
+            exch = q.get("exchDisp") or q.get("exchange") or ""
+            if symbol:
+                results.append(
+                    {
+                        "symbol": symbol,
+                        "display": f"{shortname} ({symbol}) — {exch}",
+                    }
+                )
+        return results
+    except Exception as e:
+        logging.error(f"yfinance search failed: {e}")
+        return []
 
 
 # --- FETCH MARKET INDICES ---
@@ -377,6 +394,57 @@ def open_watchlist_manager():
                 save_config(st.session_state.config)
                 st.rerun()
 
+    st.divider()
+    st.subheader("➕ Add New Script (Auto-Complete Search)")
+
+    search_query = st.text_input(
+        "Search Symbol or Company Name (e.g., Reliance, Tata, INFY, AAPL)",
+        key="script_search_input",
+    )
+
+    selected_symbol = ""
+    if search_query:
+        search_results = search_ticker_symbols(search_query)
+        if search_results:
+            options_dict = {item["display"]: item["symbol"] for item in search_results}
+            selected_display = st.selectbox(
+                "Select matching script from Yahoo Finance:",
+                options=list(options_dict.keys()),
+            )
+            selected_symbol = options_dict[selected_display]
+        else:
+            st.warning("No ticker results found. Enter ticker manually below.")
+            selected_symbol = search_query.upper().strip()
+
+    with st.form("add_script_form"):
+        add_sym = st.text_input("Ticker Symbol", value=selected_symbol)
+        ac1, ac2 = st.columns(2)
+        add_buy = ac1.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0)
+        add_qty = ac2.number_input("Quantity", min_value=1, value=10, step=1)
+
+        rc1, rc2, rc3, rc4 = st.columns(4)
+        add_sl = rc1.number_input("Stop Loss (₹)", min_value=0.0, step=1.0)
+        add_tsl = rc2.number_input("Trailing SL (₹)", min_value=0.0, step=1.0)
+        add_t1 = rc3.number_input("Target 1 (₹)", min_value=0.0, step=1.0)
+        add_t2 = rc4.number_input("Target 2 (₹)", min_value=0.0, step=1.0)
+
+        submitted = st.form_submit_button("➕ Add Script to Watchlist", type="primary")
+        if submitted and add_sym:
+            new_item = {
+                "symbol": add_sym.upper().strip(),
+                "avg_buy_price": float(add_buy),
+                "quantity": int(add_qty),
+                "stop_loss": float(add_sl),
+                "trailing_sl": float(add_tsl),
+                "target_1": float(add_t1),
+                "target_2": float(add_t2),
+                "manual_ltp": float(add_buy),
+            }
+            st.session_state.config["watchlist"].append(new_item)
+            save_config(st.session_state.config)
+            st.success(f"Added {add_sym} to watchlist!")
+            st.rerun()
+
 
 # --- SIDEBAR CONTROLS ---
 st.sidebar.title("⚙️ Controls")
@@ -386,13 +454,12 @@ if st.sidebar.button("⚙️ Manage Watchlist & Reorder", type="primary", use_co
 
 st.sidebar.divider()
 
-# --- TABLE PRESET VIEW CONTROL (FOCUS vs FULL) ---
+# --- TABLE PRESET VIEW CONTROL ---
 st.sidebar.subheader("👁️ Table Preset View")
 view_preset = st.sidebar.radio(
     "Select Display Preset:",
     options=["🔍 Main Focus View", "📋 Full Detail View"],
     index=0 if st.session_state.table_view_preset == "🔍 Main Focus View" else 1,
-    help="Main Focus View shows columns up to Stop Loss. Full Detail View shows all targets & P&L stats.",
 )
 st.session_state.table_view_preset = view_preset
 
@@ -701,7 +768,7 @@ totals_rows = [
 
 df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
 
-# COLUMN PRESETS (MAIN FOCUS VS FULL DETAIL)
+# REAL HTML TABLE ENGINE
 if view_preset == "🔍 Main Focus View":
     display_cols = [
         "Symbol",
@@ -735,81 +802,37 @@ else:
         "Weight (%)",
     ]
 
-
-def style_dataframe(val):
-    if isinstance(val, (int, float)):
-        if val > 0:
-            return "color: #00CC96; font-weight: bold;"
-        elif val < 0:
-            return "color: #FF2B2B; font-weight: bold;"
-    return ""
-
-
-tbl_font_px = int(14 * fs_table)
-tbl_padding_v = int(6 * fs_table)
-
-# =========================================================
-# REAL HTML TABLE ENGINE (SCALES FONT SIZE 100% ON 4K TV)
-# =========================================================
-
-# 1. Select Columns based on Sidebar Preset View
-if view_preset == "🔍 Main Focus View":
-    display_cols = [
-        "Symbol",
-        "Status",
-        "Qty",
-        "Avg Buy (₹)",
-        "LTP (₹)",
-        "P&L (₹)",
-        "P&L (%)",
-        "Stop Loss",
-    ]
-else:
-    display_cols = [
-        "Symbol",
-        "Status",
-        "Qty",
-        "Avg Buy (₹)",
-        "LTP (₹)",
-        "P&L (₹)",
-        "P&L (%)",
-        "Stop Loss",
-        "SL P&L (₹)",
-        "Trailing SL",
-        "TSL P&L (₹)",
-        "Target 1",
-        "T1 P&L (₹)",
-        "Target 2",
-        "T2 P&L (₹)",
-        "Invested (₹)",
-        "Current Val (₹)",
-        "Weight (%)",
-    ]
-
-# 2. Build Formatted Copy of DataFrame
 render_df = df_table[display_cols].copy()
 
-# Format Numbers cleanly
-currency_cols = ["Avg Buy (₹)", "LTP (₹)", "Stop Loss", "Trailing SL", "Target 1", "Target 2", "Invested (₹)", "Current Val (₹)"]
+currency_cols = [
+    "Avg Buy (₹)",
+    "LTP (₹)",
+    "Stop Loss",
+    "Trailing SL",
+    "Target 1",
+    "Target 2",
+    "Invested (₹)",
+    "Current Val (₹)",
+]
 for col in currency_cols:
     if col in render_df.columns:
-        render_df[col] = render_df[col].apply(lambda x: f"₹{x:,.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else "-")
+        render_df[col] = render_df[col].apply(
+            lambda x: f"₹{x:,.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
+        )
 
 if "Weight (%)" in render_df.columns:
-    render_df["Weight (%)"] = render_df["Weight (%)"].apply(lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-")
+    render_df["Weight (%)"] = render_df["Weight (%)"].apply(
+        lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
+    )
 
-# 3. Build Raw HTML Table string with explicit cell styling
 tbl_font_rem = round(1.0 * fs_table, 2)
 tbl_header_rem = round(1.1 * fs_table, 2)
 padding_v = round(0.5 * fs_table, 2)
 
 html_rows = []
-
-# Table Header
 header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
 html_rows.append(f"<thead><tr>{header_cells}</tr></thead>")
 
-# Table Rows
 html_rows.append("<tbody>")
 for _, row in render_df.iterrows():
     row_cells = []
@@ -820,7 +843,6 @@ for _, row in render_df.iterrows():
         val = row[col]
         cell_style = ""
 
-        # Apply Green/Red P&L Color
         if col in ["P&L (₹)", "P&L (%)"] and isinstance(val, (int, float)):
             color = "#00CC96" if val >= 0 else "#FF2B2B"
             sign = "+" if val >= 0 else ""
@@ -835,7 +857,6 @@ for _, row in render_df.iterrows():
 
 html_rows.append("</tbody>")
 
-# 4. Inject Full-Width Styled HTML Table
 full_html_table = f"""
 <style>
     .tv-portfolio-table {{
@@ -874,6 +895,7 @@ full_html_table = f"""
 """
 
 st.markdown(full_html_table, unsafe_allow_html=True)
+
 
 # --- SIDEBAR JOURNAL EXPORT ---
 st.sidebar.divider()
@@ -946,10 +968,9 @@ def create_candlestick_chart(row):
     for item in raw_levels:
         if item["val"] <= 0:
             continue
-        # Skip TSL if it overlaps with SL
         if item["name"] == "TSL" and sl_val > 0 and abs(tsl_val - sl_val) < 0.01:
             continue
-        # Skip TARGET 2 if it's identical to TARGET 1
+        # DEDUPLICATE TARGET 2 IF IDENTICAL TO TARGET 1
         if item["name"] == "TARGET 2" and t1_val > 0 and abs(t2_val - t1_val) < 0.01:
             continue
         horizontal_levels.append(item)
@@ -958,7 +979,6 @@ def create_candlestick_chart(row):
     align_date = dates[mid_idx]
     ltp_align_date = dates[min(mid_idx + 2, len(dates) - 1)]
 
-    # Chart Font Sizes scale with Chart Font Control
     c_title_size = int(18 * fs_chart)
     c_badge_size = int(13 * fs_chart)
     c_axis_size = int(13 * fs_chart)
