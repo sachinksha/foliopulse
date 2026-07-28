@@ -2,13 +2,14 @@ from datetime import datetime
 import json
 import logging
 import os
+import firebase_admin
+from firebase_admin import credentials, firestore
 import pandas as pd
 import plotly.graph_objects as go
 import pytz
 import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
-from streamlit_local_storage import LocalStorage
 
 # =========================================================
 # CENTRALIZED CONFIG: LABELS, COLORS, AND THEME CONSTANTS
@@ -62,7 +63,34 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Initialize Session State
+# --- FIREBASE ADMIN SDK INITIALIZATION ---
+@st.cache_resource
+def init_firebase():
+    if not firebase_admin._apps:
+        cred_dict = dict(st.secrets["firebase"])
+        cred_dict["private_key"] = cred_dict["private_key"].replace("\\n", "\n")
+        cred = credentials.Certificate(cred_dict)
+        return firebase_admin.initialize_app(cred)
+    return firebase_admin.get_app()
+
+init_firebase()
+db = firestore.client()
+
+# --- AUTHENTICATION CHECK ---
+if not st.user.is_logged_in:
+    st.sidebar.title(f"📈 {APP_CONFIG['LABELS']['APP_TITLE']}")
+    st.sidebar.caption("Please log in to access your portfolio across devices.")
+    
+    st.markdown("### 🔐 Multi-Device Portfolio Sync Required")
+    st.info("Log in with Google to view and sync your portfolio across mobile, tablet, and desktop.")
+    
+    if st.button("🔑 Log in with Google", type="primary"):
+        st.login()
+    st.stop()
+
+user_email = st.user.email
+
+# --- SESSION STATES ---
 if "table_font_scale" not in st.session_state:
     st.session_state.table_font_scale = 1.20
 
@@ -78,6 +106,62 @@ if "is_modal_open" not in st.session_state:
 fs_table = st.session_state.table_font_scale
 fs_chart = st.session_state.chart_font_scale
 
+DEFAULT_CONFIG = {
+    "refresh_seconds": 10,
+    "watchlist": [
+        {
+            "symbol": "M&MFIN.NS",
+            "avg_buy_price": 280.00,
+            "quantity": 100,
+            "stop_loss": 260.00,
+            "trailing_sl": 270.00,
+            "target_1": 310.00,
+            "target_2": 330.00,
+            "manual_ltp": 285.00,
+        },
+        {
+            "symbol": "TITAN.NS",
+            "avg_buy_price": 3400.00,
+            "quantity": 15,
+            "stop_loss": 3200.00,
+            "trailing_sl": 3300.00,
+            "target_1": 3700.00,
+            "target_2": 3900.00,
+            "manual_ltp": 3450.00,
+        },
+    ],
+}
+
+# --- CLOUD CONFIG SYNC FUNCTIONS ---
+def load_user_config_from_cloud(email: str) -> dict:
+    try:
+        doc_ref = db.collection("user_configs").document(email)
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict()
+        else:
+            doc_ref.set(DEFAULT_CONFIG)
+            return DEFAULT_CONFIG
+    except Exception as e:
+        logging.error(f"Firestore load failed: {e}")
+        return DEFAULT_CONFIG
+
+def save_config_to_cloud(email: str, config_dict: dict):
+    st.session_state.config = config_dict
+    try:
+        doc_ref = db.collection("user_configs").document(email)
+        doc_ref.set(config_dict, merge=True)
+    except Exception as e:
+        st.error(f"Failed to sync with cloud: {e}")
+
+if "config" not in st.session_state:
+    st.session_state.config = load_user_config_from_cloud(user_email)
+
+def save_config(config_dict):
+    save_config_to_cloud(user_email, config_dict)
+
+if "stock_cache" not in st.session_state:
+    st.session_state.stock_cache = {}
 
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
@@ -87,15 +171,14 @@ def format_compact_inr(val):
     sign = "-" if val < 0 else ""
     sym = APP_CONFIG["UNITS"]["CURRENCY_SYMBOL"]
 
-    if abs_val >= 10_000_000:  # 1 Crore = 1,00,00,000
+    if abs_val >= 10_000_000:
         return f"{sign}{sym}{abs_val / 10_000_000:.2f}{APP_CONFIG['UNITS']['CRORE']}"
-    elif abs_val >= 100_000:  # 1 Lakh = 1,00,000
+    elif abs_val >= 100_000:
         return f"{sign}{sym}{abs_val / 100_000:.2f}{APP_CONFIG['UNITS']['LAKH']}"
-    elif abs_val >= 1_000:  # 1 Thousand = 1,000
+    elif abs_val >= 1_000:
         return f"{sign}{sym}{abs_val / 1_000:.1f}{APP_CONFIG['UNITS']['THOUSAND']}"
     else:
         return f"{sign}{sym}{abs_val:,.2f}"
-
 
 # --- INJECT DYNAMIC CSS ---
 st.markdown(
@@ -174,78 +257,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-local_storage = LocalStorage()
-
-DEFAULT_CONFIG = {
-    "refresh_seconds": 10,
-    "watchlist": [
-        {
-            "symbol": "M&MFIN.NS",
-            "avg_buy_price": 280.00,
-            "quantity": 100,
-            "stop_loss": 260.00,
-            "trailing_sl": 270.00,
-            "target_1": 310.00,
-            "target_2": 330.00,
-            "manual_ltp": 285.00,
-        },
-        {
-            "symbol": "TITAN.NS",
-            "avg_buy_price": 3400.00,
-            "quantity": 15,
-            "stop_loss": 3200.00,
-            "trailing_sl": 3300.00,
-            "target_1": 3700.00,
-            "target_2": 3900.00,
-            "manual_ltp": 3450.00,
-        },
-    ],
-}
-
-
-def init_user_config():
-    if "config" not in st.session_state:
-        saved_browser_config = local_storage.getItem("foliopulse_user_config")
-        if saved_browser_config:
-            try:
-                st.session_state.config = json.loads(saved_browser_config)
-            except Exception:
-                st.session_state.config = json.loads(json.dumps(DEFAULT_CONFIG))
-        else:
-            st.session_state.config = json.loads(json.dumps(DEFAULT_CONFIG))
-
-
-def save_config(config_dict):
-    st.session_state.config = config_dict
-    local_storage.setItem("foliopulse_user_config", json.dumps(config_dict))
-
-
-init_user_config()
-
-if "stock_cache" not in st.session_state:
-    st.session_state.stock_cache = {}
-
-
 # --- SMART INDIAN MARKET HOURS DETECTOR ---
 NSE_HOLIDAYS_2026 = {
-    "2026-01-26",
-    "2026-03-03",
-    "2026-03-26",
-    "2026-03-31",
-    "2026-04-03",
-    "2026-04-14",
-    "2026-05-01",
-    "2026-05-28",
-    "2026-06-26",
-    "2026-08-26",
-    "2026-09-14",
-    "2026-10-02",
-    "2026-10-20",
-    "2026-11-10",
-    "2026-11-24",
-    "2026-12-25",
+    "2026-01-26", "2026-03-03", "2026-03-26", "2026-03-31",
+    "2026-04-03", "2026-04-14", "2026-05-01", "2026-05-28",
+    "2026-06-26", "2026-08-26", "2026-09-14", "2026-10-02",
+    "2026-10-20", "2026-11-10", "2026-11-24", "2026-12-25",
 }
-
 
 def is_market_open():
     india_tz = pytz.timezone("Asia/Kolkata")
@@ -268,7 +286,6 @@ def is_market_open():
         return False, "Pre-Market (Opens 09:15 AM)"
     else:
         return False, "Post-Market (Closed 03:30 PM)"
-
 
 @st.cache_data(ttl=300)
 def search_ticker_symbols(query):
@@ -294,7 +311,6 @@ def search_ticker_symbols(query):
         logging.error(f"yfinance search failed: {e}")
         return []
 
-
 @st.cache_data(ttl=10)
 def fetch_market_indices():
     indices = {
@@ -319,7 +335,6 @@ def fetch_market_indices():
         except Exception:
             results[name] = {"val": 0.0, "chg": 0.0, "pct": 0.0}
     return results
-
 
 # --- MODAL POPUP DIALOG WITH AUTO-REFRESH PAUSE LOGIC ---
 @st.dialog("🛠️ Watchlist & Script Sequence Manager", width="large")
@@ -356,7 +371,7 @@ def open_watchlist_manager():
                 if "watchlist" in parsed_config:
                     st.session_state.config = parsed_config
                     save_config(parsed_config)
-                    st.success("Config uploaded and applied!")
+                    st.success("Config uploaded and synced!")
                     st.rerun()
                 else:
                     st.error("Invalid JSON format: missing 'watchlist' key.")
@@ -542,10 +557,13 @@ def open_watchlist_manager():
             st.session_state.is_modal_open = False
             st.rerun()
 
-
-# --- SIDEBAR HEADER & CONTROLS ---
+# --- SIDEBAR HEADER & USER BAR ---
 st.sidebar.title(f"📈 {APP_CONFIG['LABELS']['APP_TITLE']}")
-st.sidebar.caption(APP_CONFIG["LABELS"]["APP_SUBTITLE"])
+st.sidebar.caption(f"👤 Logged in: **{user_email}**")
+if st.sidebar.button("🚪 Logout", use_container_width=True):
+    st.logout()
+
+st.sidebar.divider()
 
 if st.sidebar.button(
     "⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True
@@ -655,7 +673,6 @@ if (
 ):
     st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 
-
 # --- FETCH 10-DAY HISTORY ENGINE ---
 def get_10day_history(sym):
     ticker_obj = yf.Ticker(sym)
@@ -676,7 +693,6 @@ def get_10day_history(sym):
         method = "history_fallback"
 
     return ltp, df_10d, method
-
 
 def fetch_portfolio_data(watchlist, use_manual_override):
     rows = []
@@ -767,7 +783,6 @@ def fetch_portfolio_data(watchlist, use_manual_override):
 
     return pd.DataFrame(rows), fetch_errors
 
-
 df, error_logs = fetch_portfolio_data(
     st.session_state.config["watchlist"], manual_override_active
 )
@@ -856,7 +871,6 @@ with top_col2:
         """,
             unsafe_allow_html=True,
         )
-
 
 # --- CONSTRUCT MAIN TABLE ---
 winning_df = df[df["Raw_PnL"] > 0]
@@ -1087,7 +1101,6 @@ full_html_table = f"""
 
 st.markdown(full_html_table, unsafe_allow_html=True)
 
-
 # --- SIDEBAR JOURNAL EXPORT ---
 st.sidebar.divider()
 st.sidebar.subheader("📥 Journal Export")
@@ -1105,7 +1118,6 @@ st.sidebar.download_button(
     mime="text/csv",
     use_container_width=True,
 )
-
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
 def create_candlestick_chart(row):
@@ -1344,7 +1356,6 @@ def create_candlestick_chart(row):
     )
 
     return fig
-
 
 # --- CHARTS RENDER SECTION ---
 stock_rows_only = df[df["Status"] != "Summary"]
