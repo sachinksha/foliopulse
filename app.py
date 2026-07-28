@@ -15,9 +15,9 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-# --- PAGE SETUP ---
+# --- PAGE SETUP (TAB TITLE & FAVICON) ---
 st.set_page_config(
-    page_title="FolioPulse",
+    page_title="FolioPulse — Live Portfolio & Risk Monitor",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -44,62 +44,54 @@ def format_compact_inr(val):
     abs_val = abs(val)
     sign = "-" if val < 0 else ""
 
-    if abs_val >= 1_00_00_000:  # 1 Crore
-        return f"{sign}₹{abs_val / 1_00_00_000:.2f}Cr"
-    elif abs_val >= 1_00_000:  # 1 Lakh
-        return f"{sign}₹{abs_val / 1_00_000:.2f}L"
-    elif abs_val >= 1_000:  # 1 Thousand
+    # 1 Crore = 10,000,000 (100 Lakhs)
+    if abs_val >= 10_000_000:
+        return f"{sign}₹{abs_val / 10_000_000:.2f}Cr"
+    # 1 Lakh = 100,000
+    elif abs_val >= 100_000:
+        return f"{sign}₹{abs_val / 100_000:.2f}L"
+    # 1 Thousand = 1,000
+    elif abs_val >= 1_000:
         return f"{sign}₹{abs_val / 1_000:.1f}K"
     else:
         return f"{sign}₹{abs_val:,.2f}"
 
-
-# --- INJECT DYNAMIC CSS ---
+# --- INJECT DYNAMIC CSS (MAXIMUM CONTENT SPACE & AUTO-HIDE HEADER) ---
 st.markdown(
     f"""
     <style>
-        header[data-testid="stHeader"]::before {{
-            content: "📈 FolioPulse — Live Portfolio & Risk Monitor";
-            position: absolute;
-            left: 3.5rem;
-            top: 50%;
-            transform: translateY(-50%);
-            font-size: {1.3 * fs_chart:.2f}rem;
-            font-weight: 700;
-            color: inherit;
-            white-space: nowrap;
+        /* 1. AUTO-HIDE STREAMLIT TOP-RIGHT HEADER (3 DOTS / MENU) */
+        header[data-testid="stHeader"] {{
+            opacity: 0;
+            transition: opacity 0.25s ease-in-out;
             z-index: 999999;
-            font-family: Source Sans Pro, sans-serif;
+        }}
+        header[data-testid="stHeader"]:hover {{
+            opacity: 1; /* Fades back in on mouse hover */
         }}
 
+        /* 2. MAXIMIZE VERTICAL PAGE REAL ESTATE */
         .block-container {{
-            padding-top: 2.8rem !important;
+            padding-top: 0.5rem !important;
             padding-bottom: 0.5rem !important;
-            padding-left: 1rem !important;
-            padding-right: 1rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
             max-width: 100% !important;
         }}
 
         div[data-testid="stVerticalBlock"] {{
-            gap: 0.4rem !important;
+            gap: 0.3rem !important;
         }}
 
-        .section-subhdr {{
-            font-size: {1.35 * fs_chart:.2f}rem !important;
-            font-weight: 700;
-            margin-top: 0.4rem !important;
-            margin-bottom: 0.4rem !important;
-        }}
-
-        /* Stat Card Formatting (Larger Fonts for TV) */
+        /* Stat Card Formatting */
         .stat-card {{
             background-color: #0E1117;
-            padding: 0.65rem 0.85rem;
+            padding: 0.5rem 0.75rem;
             border-radius: 8px;
             border-width: 2px;
             border-style: solid;
             text-align: left;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.3rem;
         }}
         .stat-label {{
             font-size: {1.05 * fs_chart:.2f}rem;
@@ -118,11 +110,11 @@ st.markdown(
         /* Index Card Formatting */
         .index-card {{
             background-color: #161B22;
-            padding: 0.6rem 0.8rem;
+            padding: 0.5rem 0.75rem;
             border-radius: 8px;
             border: 1px solid #30363D;
             text-align: right;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.3rem;
         }}
         .index-label {{
             font-size: {1.0 * fs_chart:.2f}rem;
@@ -467,8 +459,9 @@ def open_watchlist_manager():
             st.rerun()
 
 
-# --- SIDEBAR CONTROLS ---
-st.sidebar.title("⚙️ Controls")
+# --- SIDEBAR HEADER & CONTROLS ---
+st.sidebar.title("📈 FolioPulse")
+st.sidebar.caption("Live Portfolio & Risk Monitor")
 
 if st.sidebar.button("⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True):
     open_watchlist_manager()
@@ -641,7 +634,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
 
 df, error_logs = fetch_portfolio_data(st.session_state.config["watchlist"], manual_override_active)
 
-# --- TOP STATS & MARKET INDICES HEADER ROW (WITH SHORT FORMAT L/K) ---
+# --- TOP STATS & MARKET INDICES HEADER ROW ---
 tot_invested = df["Raw_Invested"].sum()
 tot_current = df["Raw_Current"].sum()
 tot_pnl = tot_current - tot_invested
@@ -847,7 +840,7 @@ if "Weight (%)" in render_df.columns:
 
 tbl_font_rem = round(1.0 * fs_table, 2)
 tbl_header_rem = round(1.1 * fs_table, 2)
-padding_v = round(0.5 * fs_table, 2)
+padding_v = round(0.4 * fs_table, 2)
 
 html_rows = []
 header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
@@ -882,7 +875,7 @@ full_html_table = f"""
     .tv-portfolio-table {{
         width: 100%;
         border-collapse: collapse;
-        margin-bottom: 1rem;
+        margin-bottom: 0.5rem;
         background-color: #0E1117;
         color: #FFFFFF;
         font-family: Source Sans Pro, sans-serif;
@@ -1121,11 +1114,6 @@ def create_candlestick_chart(row):
 
 
 # --- CHARTS RENDER SECTION ---
-st.markdown(
-    '<div class="section-subhdr">📊 10-Day Candlestick Charts & Risk Levels</div>',
-    unsafe_allow_html=True,
-)
-
 stock_rows_only = df[df["Status"] != "Summary"]
 
 num_cols = chart_cols_per_row
