@@ -10,67 +10,106 @@ import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 from streamlit_local_storage import LocalStorage
 
+# =========================================================
+# CENTRALIZED CONFIG: LABELS, COLORS, AND THEME CONSTANTS
+# =========================================================
+APP_CONFIG = {
+    "LABELS": {
+        "APP_TITLE": "FolioPulse",
+        "APP_SUBTITLE": "Live Portfolio & Risk Monitor",
+        "SL": "STOP-LOSS",
+        "TSL": "TRAILING-SL",
+        "BUY": "BUY PRICE",
+        "LTP": "LIVE LTP",
+        "T1": "TARGET 1",
+        "T2": "TARGET 2",
+        "SUMMARY_WIN": "🟢 TOTAL PROFITS",
+        "SUMMARY_LOSS": "🔴 TOTAL LOSSES",
+        "SUMMARY_NET": "💼 NET TOTAL",
+    },
+    "COLORS": {
+        "PROFIT_GREEN": "#00CC96",
+        "LOSS_RED": "#FF2B2B",
+        "SL_ORANGE": "#FF872B",
+        "TSL_YELLOW": "#77671F",
+        "BUY_BLUE": "#1F77B4",
+        "LTP_RED": "#FF0000",
+        "BG_DARK": "#0E1117",
+        "BG_CARD": "#161B22",
+        "BORDER_CARD": "#30363D",
+        "HEADER_BG": "#1F2937",
+        "HEADER_BORDER": "#374151",
+        "TEXT_MUTED": "#9CA3AF",
+    },
+    "UNITS": {
+        "CURRENCY_SYMBOL": "₹",
+        "CRORE": "Cr",
+        "LAKH": "L",
+        "THOUSAND": "K",
+    },
+}
+
 # --- LOGGING SETUP ---
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-# --- PAGE SETUP (TAB TITLE & FAVICON) ---
+# --- PAGE SETUP ---
 st.set_page_config(
-    page_title="FolioPulse — Live Portfolio & Risk Monitor",
+    page_title=f"{APP_CONFIG['LABELS']['APP_TITLE']} — {APP_CONFIG['LABELS']['APP_SUBTITLE']}",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# Initialize Separate Font & View Scaling States
+# Initialize Session State
 if "table_font_scale" not in st.session_state:
-    st.session_state.table_font_scale = 1.20  # Base scale for main table
+    st.session_state.table_font_scale = 1.20
 
 if "chart_font_scale" not in st.session_state:
-    st.session_state.chart_font_scale = 1.10  # Base scale for charts & top stats
+    st.session_state.chart_font_scale = 1.10
 
 if "table_view_preset" not in st.session_state:
     st.session_state.table_view_preset = "🔍 Main Focus View"
+
+if "is_modal_open" not in st.session_state:
+    st.session_state.is_modal_open = False
 
 fs_table = st.session_state.table_font_scale
 fs_chart = st.session_state.chart_font_scale
 
 
-# --- COMPACT INDIAN NUMBER FORMATTER (Lakhs, Thousands, Crores) ---
+# --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
     if val is None or not isinstance(val, (int, float)):
         return "-"
     abs_val = abs(val)
     sign = "-" if val < 0 else ""
+    sym = APP_CONFIG["UNITS"]["CURRENCY_SYMBOL"]
 
-    # 1 Crore = 10,000,000 (100 Lakhs)
-    if abs_val >= 10_000_000:
-        return f"{sign}₹{abs_val / 10_000_000:.2f}Cr"
-    # 1 Lakh = 100,000
-    elif abs_val >= 100_000:
-        return f"{sign}₹{abs_val / 100_000:.2f}L"
-    # 1 Thousand = 1,000
-    elif abs_val >= 1_000:
-        return f"{sign}₹{abs_val / 1_000:.1f}K"
+    if abs_val >= 10_000_000:  # 1 Crore = 1,00,00,000
+        return f"{sign}{sym}{abs_val / 10_000_000:.2f}{APP_CONFIG['UNITS']['CRORE']}"
+    elif abs_val >= 100_000:  # 1 Lakh = 1,00,000
+        return f"{sign}{sym}{abs_val / 100_000:.2f}{APP_CONFIG['UNITS']['LAKH']}"
+    elif abs_val >= 1_000:  # 1 Thousand = 1,000
+        return f"{sign}{sym}{abs_val / 1_000:.1f}{APP_CONFIG['UNITS']['THOUSAND']}"
     else:
-        return f"{sign}₹{abs_val:,.2f}"
+        return f"{sign}{sym}{abs_val:,.2f}"
 
-# --- INJECT DYNAMIC CSS (MAXIMUM CONTENT SPACE & AUTO-HIDE HEADER) ---
+
+# --- INJECT DYNAMIC CSS ---
 st.markdown(
     f"""
     <style>
-        /* 1. AUTO-HIDE STREAMLIT TOP-RIGHT HEADER (3 DOTS / MENU) */
         header[data-testid="stHeader"] {{
             opacity: 0;
             transition: opacity 0.25s ease-in-out;
             z-index: 999999;
         }}
         header[data-testid="stHeader"]:hover {{
-            opacity: 1; /* Fades back in on mouse hover */
+            opacity: 1;
         }}
 
-        /* 2. MAXIMIZE VERTICAL PAGE REAL ESTATE */
         .block-container {{
             padding-top: 0.5rem !important;
             padding-bottom: 0.5rem !important;
@@ -83,9 +122,8 @@ st.markdown(
             gap: 0.3rem !important;
         }}
 
-        /* Stat Card Formatting */
         .stat-card {{
-            background-color: #0E1117;
+            background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
             padding: 0.5rem 0.75rem;
             border-radius: 8px;
             border-width: 2px;
@@ -95,7 +133,7 @@ st.markdown(
         }}
         .stat-label {{
             font-size: {1.05 * fs_chart:.2f}rem;
-            color: #94A3B8;
+            color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
             font-weight: 700;
             text-transform: uppercase;
         }}
@@ -107,12 +145,11 @@ st.markdown(
             white-space: nowrap;
         }}
 
-        /* Index Card Formatting */
         .index-card {{
-            background-color: #161B22;
+            background-color: {APP_CONFIG["COLORS"]["BG_CARD"]};
             padding: 0.5rem 0.75rem;
             border-radius: 8px;
-            border: 1px solid #30363D;
+            border: 1px solid {APP_CONFIG["COLORS"]["BORDER_CARD"]};
             text-align: right;
             margin-bottom: 0.3rem;
         }}
@@ -150,7 +187,7 @@ DEFAULT_CONFIG = {
             "trailing_sl": 270.00,
             "target_1": 310.00,
             "target_2": 330.00,
-            "manual_ltp": 0.0,
+            "manual_ltp": 285.00,
         },
         {
             "symbol": "TITAN.NS",
@@ -166,7 +203,6 @@ DEFAULT_CONFIG = {
 }
 
 
-# --- PER-USER SESSION INITIALIZATION ---
 def init_user_config():
     if "config" not in st.session_state:
         saved_browser_config = local_storage.getItem("foliopulse_user_config")
@@ -234,7 +270,6 @@ def is_market_open():
         return False, "Post-Market (Closed 03:30 PM)"
 
 
-# --- AUTO-COMPLETE SEARCH ENGINE VIA YFINANCE ---
 @st.cache_data(ttl=300)
 def search_ticker_symbols(query):
     if not query or len(query.strip()) < 2:
@@ -260,7 +295,6 @@ def search_ticker_symbols(query):
         return []
 
 
-# --- FETCH MARKET INDICES ---
 @st.cache_data(ttl=10)
 def fetch_market_indices():
     indices = {
@@ -287,10 +321,13 @@ def fetch_market_indices():
     return results
 
 
-# --- MODAL POPUP DIALOG FOR WATCHLIST CONFIG MANAGEMENT ---
+# --- MODAL POPUP DIALOG WITH AUTO-REFRESH PAUSE LOGIC ---
 @st.dialog("🛠️ Watchlist & Script Sequence Manager", width="large")
 def open_watchlist_manager():
-    st.markdown("Upload/download configs, reorder scripts using grabbers, or edit rows inline.")
+    st.session_state.is_modal_open = True
+    st.markdown(
+        "Upload/download configs, reorder scripts using grabbers, or edit rows inline."
+    )
 
     watchlist = st.session_state.config.get("watchlist", [])
 
@@ -334,7 +371,7 @@ def open_watchlist_manager():
     else:
         for i, item in enumerate(watchlist):
             c_grab, c_sym, c_buy, c_qty, c_risk, c_act, c_del = st.columns(
-                [0.8, 1.8, 1.3, 1.0, 2.2, 1.2, 0.8]
+                [0.8, 1.8, 1.3, 1.0, 2.5, 1.2, 0.8]
             )
 
             is_editing = st.session_state.editing_row_idx == i
@@ -353,17 +390,50 @@ def open_watchlist_manager():
                     st.rerun()
 
             if is_editing:
-                edit_sym = c_sym.text_input("Symbol", value=item["symbol"], key=f"edit_sym_{i}")
-                edit_buy = c_buy.number_input("Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}")
-                edit_qty = c_qty.number_input("Qty", value=int(item["quantity"]), step=1, key=f"edit_qty_{i}")
+                edit_sym = c_sym.text_input(
+                    "Symbol", value=item["symbol"], key=f"edit_sym_{i}"
+                )
+                edit_buy = c_buy.number_input(
+                    "Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}"
+                )
+                edit_qty = c_qty.number_input(
+                    "Qty", value=int(item["quantity"]), step=1, key=f"edit_qty_{i}"
+                )
 
                 with c_risk:
-                    r1, r2 = st.columns(2)
-                    edit_sl = r1.number_input("SL", value=float(item.get("stop_loss", 0.0)), step=1.0, key=f"edit_sl_{i}")
-                    edit_tsl = r2.number_input("TSL", value=float(item.get("trailing_sl", 0.0)), step=1.0, key=f"edit_tsl_{i}")
-                    r3, r4 = st.columns(2)
-                    edit_t1 = r3.number_input("T1", value=float(item.get("target_1", 0.0)), step=1.0, key=f"edit_t1_{i}")
-                    edit_t2 = r4.number_input("T2", value=float(item.get("target_2", 0.0)), step=1.0, key=f"edit_t2_{i}")
+                    r1, r2, r3 = st.columns(3)
+                    edit_sl = r1.number_input(
+                        APP_CONFIG["LABELS"]["SL"],
+                        value=float(item.get("stop_loss", 0.0)),
+                        step=1.0,
+                        key=f"edit_sl_{i}",
+                    )
+                    edit_tsl = r2.number_input(
+                        APP_CONFIG["LABELS"]["TSL"],
+                        value=float(item.get("trailing_sl", 0.0)),
+                        step=1.0,
+                        key=f"edit_tsl_{i}",
+                    )
+                    edit_manual_ltp = r3.number_input(
+                        "Manual LTP",
+                        value=float(item.get("manual_ltp", edit_buy)),
+                        step=1.0,
+                        key=f"edit_mltp_{i}",
+                    )
+
+                    r4, r5 = st.columns(2)
+                    edit_t1 = r4.number_input(
+                        APP_CONFIG["LABELS"]["T1"],
+                        value=float(item.get("target_1", 0.0)),
+                        step=1.0,
+                        key=f"edit_t1_{i}",
+                    )
+                    edit_t2 = r5.number_input(
+                        APP_CONFIG["LABELS"]["T2"],
+                        value=float(item.get("target_2", 0.0)),
+                        step=1.0,
+                        key=f"edit_t2_{i}",
+                    )
 
                 with c_act:
                     b_save, b_cancel = st.columns(2)
@@ -376,7 +446,7 @@ def open_watchlist_manager():
                             "trailing_sl": float(edit_tsl),
                             "target_1": float(edit_t1),
                             "target_2": float(edit_t2),
-                            "manual_ltp": float(item.get("manual_ltp", edit_buy)),
+                            "manual_ltp": float(edit_manual_ltp),
                         }
                         st.session_state.config["watchlist"] = watchlist
                         save_config(st.session_state.config)
@@ -388,12 +458,16 @@ def open_watchlist_manager():
                         st.rerun()
             else:
                 sym_clean = item["symbol"].replace(".NS", "")
+                lbl_sl = APP_CONFIG["LABELS"]["SL"]
+                lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
+                lbl_t1 = APP_CONFIG["LABELS"]["T1"]
+                lbl_t2 = APP_CONFIG["LABELS"]["T2"]
                 c_sym.markdown(f"**{i+1}. {sym_clean}**")
                 c_buy.markdown(f"₹{item['avg_buy_price']:,.2f}")
                 c_qty.markdown(f"{item['quantity']}")
                 c_risk.markdown(
-                    f"<small>SL: ₹{item.get('stop_loss',0)} | TSL: ₹{item.get('trailing_sl',0)}<br>"
-                    f"T1: ₹{item.get('target_1',0)} | T2: ₹{item.get('target_2',0)}</small>",
+                    f"<small>{lbl_sl}: ₹{item.get('stop_loss',0)} | {lbl_tsl}: ₹{item.get('trailing_sl',0)}<br>"
+                    f"{lbl_t1}: ₹{item.get('target_1',0)} | {lbl_t2}: ₹{item.get('target_2',0)} | Manual: ₹{item.get('manual_ltp',0)}</small>",
                     unsafe_allow_html=True,
                 )
 
@@ -431,15 +505,24 @@ def open_watchlist_manager():
 
     with st.form("add_script_form"):
         add_sym = st.text_input("Ticker Symbol", value=selected_symbol)
-        ac1, ac2 = st.columns(2)
+        ac1, ac2, ac3 = st.columns(3)
         add_buy = ac1.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0)
         add_qty = ac2.number_input("Quantity", min_value=1, value=10, step=1)
+        add_mltp = ac3.number_input("Manual LTP (₹)", min_value=0.0, step=1.0)
 
         rc1, rc2, rc3, rc4 = st.columns(4)
-        add_sl = rc1.number_input("Stop Loss (₹)", min_value=0.0, step=1.0)
-        add_tsl = rc2.number_input("Trailing SL (₹)", min_value=0.0, step=1.0)
-        add_t1 = rc3.number_input("Target 1 (₹)", min_value=0.0, step=1.0)
-        add_t2 = rc4.number_input("Target 2 (₹)", min_value=0.0, step=1.0)
+        add_sl = rc1.number_input(
+            f"{APP_CONFIG['LABELS']['SL']} (₹)", min_value=0.0, step=1.0
+        )
+        add_tsl = rc2.number_input(
+            f"{APP_CONFIG['LABELS']['TSL']} (₹)", min_value=0.0, step=1.0
+        )
+        add_t1 = rc3.number_input(
+            f"{APP_CONFIG['LABELS']['T1']} (₹)", min_value=0.0, step=1.0
+        )
+        add_t2 = rc4.number_input(
+            f"{APP_CONFIG['LABELS']['T2']} (₹)", min_value=0.0, step=1.0
+        )
 
         submitted = st.form_submit_button("➕ Add Script to Watchlist", type="primary")
         if submitted and add_sym:
@@ -451,19 +534,22 @@ def open_watchlist_manager():
                 "trailing_sl": float(add_tsl),
                 "target_1": float(add_t1),
                 "target_2": float(add_t2),
-                "manual_ltp": float(add_buy),
+                "manual_ltp": float(add_mltp if add_mltp > 0 else add_buy),
             }
             st.session_state.config["watchlist"].append(new_item)
             save_config(st.session_state.config)
             st.success(f"Added {add_sym} to watchlist!")
+            st.session_state.is_modal_open = False
             st.rerun()
 
 
 # --- SIDEBAR HEADER & CONTROLS ---
-st.sidebar.title("📈 FolioPulse")
-st.sidebar.caption("Live Portfolio & Risk Monitor")
+st.sidebar.title(f"📈 {APP_CONFIG['LABELS']['APP_TITLE']}")
+st.sidebar.caption(APP_CONFIG["LABELS"]["APP_SUBTITLE"])
 
-if st.sidebar.button("⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True):
+if st.sidebar.button(
+    "⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True
+):
     open_watchlist_manager()
 
 st.sidebar.divider()
@@ -483,8 +569,10 @@ st.sidebar.divider()
 st.sidebar.subheader("📋 Main Table Font Size")
 t_col1, t_col2, t_col3 = st.sidebar.columns([1, 1, 1])
 
-if t_col1.button("🔍 A-", key="tbl_f_dn", use_container_width=True, help="Decrease Main Table Font"):
-    st.session_state.table_font_scale = max(0.8, round(st.session_state.table_font_scale - 0.1, 2))
+if t_col1.button("🔍 A-", key="tbl_f_dn", use_container_width=True):
+    st.session_state.table_font_scale = max(
+        0.8, round(st.session_state.table_font_scale - 0.1, 2)
+    )
     st.rerun()
 
 t_col2.markdown(
@@ -492,16 +580,19 @@ t_col2.markdown(
     unsafe_allow_html=True,
 )
 
-if t_col3.button("🔍 A+", key="tbl_f_up", use_container_width=True, help="Increase Main Table Font"):
-    st.session_state.table_font_scale = min(2.5, round(st.session_state.table_font_scale + 0.1, 2))
+if t_col3.button("🔍 A+", key="tbl_f_up", use_container_width=True):
+    st.session_state.table_font_scale = min(
+        2.5, round(st.session_state.table_font_scale + 0.1, 2)
+    )
     st.rerun()
-
 
 st.sidebar.subheader("📊 Charts & UI Font Size")
 c_col1, c_col2, c_col3 = st.sidebar.columns([1, 1, 1])
 
-if c_col1.button("🔍 A-", key="crt_f_dn", use_container_width=True, help="Decrease Charts Font"):
-    st.session_state.chart_font_scale = max(0.8, round(st.session_state.chart_font_scale - 0.1, 2))
+if c_col1.button("🔍 A-", key="crt_f_dn", use_container_width=True):
+    st.session_state.chart_font_scale = max(
+        0.8, round(st.session_state.chart_font_scale - 0.1, 2)
+    )
     st.rerun()
 
 c_col2.markdown(
@@ -509,21 +600,59 @@ c_col2.markdown(
     unsafe_allow_html=True,
 )
 
-if c_col3.button("🔍 A+", key="crt_f_up", use_container_width=True, help="Increase Charts Font"):
-    st.session_state.chart_font_scale = min(2.2, round(st.session_state.chart_font_scale + 0.1, 2))
+if c_col3.button("🔍 A+", key="crt_f_up", use_container_width=True):
+    st.session_state.chart_font_scale = min(
+        2.2, round(st.session_state.chart_font_scale + 0.1, 2)
+    )
     st.rerun()
 
 st.sidebar.divider()
 
+# --- MANUAL OVERRIDE & INLINE SIDEBAR PRICE INPUTS ---
 manual_override_active = st.sidebar.toggle("🟡 Manual Override", value=False)
+
+if manual_override_active:
+    st.sidebar.caption("✏️ Adjust Live LTPs below:")
+    updated_watchlist = st.session_state.config.get("watchlist", [])
+    config_changed = False
+
+    for idx, item in enumerate(updated_watchlist):
+        sym_clean = item["symbol"].replace(".NS", "")
+        current_mltp = float(item.get("manual_ltp", item["avg_buy_price"]))
+
+        new_mltp = st.sidebar.number_input(
+            f"{sym_clean} Price (₹)",
+            value=current_mltp,
+            step=1.0,
+            key=f"sb_mltp_{idx}",
+        )
+
+        if new_mltp != current_mltp:
+            updated_watchlist[idx]["manual_ltp"] = float(new_mltp)
+            config_changed = True
+
+    if config_changed:
+        st.session_state.config["watchlist"] = updated_watchlist
+        save_config(st.session_state.config)
+        st.rerun()
+
 market_is_open, market_reason = is_market_open()
 
-refresh_rate = st.sidebar.slider("Refresh Interval (s)", min_value=5, max_value=60, value=10)
+refresh_rate = st.sidebar.slider(
+    "Refresh Interval (s)", min_value=5, max_value=60, value=10
+)
 
-chart_cols_per_row = st.sidebar.select_slider("Grid Columns", options=[1, 2, 3], value=2)
+chart_cols_per_row = st.sidebar.select_slider(
+    "Grid Columns", options=[1, 2, 3], value=2
+)
 auto_zoom_risk_range = st.sidebar.toggle("🔍 Auto-Zoom Range", value=True)
 
-if not manual_override_active and market_is_open:
+# PAUSE AUTO-REFRESH IF MODAL IS OPEN TO PREVENT FORM DEREGISTRATION
+if (
+    not manual_override_active
+    and market_is_open
+    and not st.session_state.is_modal_open
+):
     st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 
 
@@ -553,7 +682,14 @@ def fetch_portfolio_data(watchlist, use_manual_override):
     rows = []
     fetch_errors = []
 
-    total_invested = sum(item["avg_buy_price"] * item["quantity"] for item in watchlist)
+    total_invested = sum(
+        item["avg_buy_price"] * item["quantity"] for item in watchlist
+    )
+
+    lbl_sl = APP_CONFIG["LABELS"]["SL"]
+    lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
+    lbl_t1 = APP_CONFIG["LABELS"]["T1"]
+    lbl_t2 = APP_CONFIG["LABELS"]["T2"]
 
     for idx, item in enumerate(watchlist):
         sym = item["symbol"]
@@ -611,14 +747,14 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "LTP (₹)": ltp,
                 "P&L (₹)": round(pnl, 2),
                 "P&L (%)": round(pnl_pct, 2),
-                "Stop Loss": sl,
-                "SL P&L (₹)": f"₹{sl_pnl:,.2f} ({sl_pnl_pct:+.1f}%)",
-                "Trailing SL": tsl,
-                "TSL P&L (₹)": f"₹{tsl_pnl:,.2f} ({tsl_pnl_pct:+.1f}%)",
-                "Target 1": t1,
-                "T1 P&L (₹)": f"₹{t1_pnl:,.2f} ({t1_pnl_pct:+.1f}%)",
-                "Target 2": t2,
-                "T2 P&L (₹)": f"₹{t2_pnl:,.2f} ({t2_pnl_pct:+.1f}%)",
+                lbl_sl: sl,
+                f"{lbl_sl} P&L (₹)": f"₹{sl_pnl:,.2f} ({sl_pnl_pct:+.1f}%)",
+                lbl_tsl: tsl,
+                f"{lbl_tsl} P&L (₹)": f"₹{tsl_pnl:,.2f} ({tsl_pnl_pct:+.1f}%)",
+                lbl_t1: t1,
+                f"{lbl_t1} P&L (₹)": f"₹{t1_pnl:,.2f} ({t1_pnl_pct:+.1f}%)",
+                lbl_t2: t2,
+                f"{lbl_t2} P&L (₹)": f"₹{t2_pnl:,.2f} ({t2_pnl_pct:+.1f}%)",
                 "Invested (₹)": round(invested, 2),
                 "Current Val (₹)": round(current, 2),
                 "Weight (%)": round(weight_pct, 2),
@@ -632,7 +768,17 @@ def fetch_portfolio_data(watchlist, use_manual_override):
     return pd.DataFrame(rows), fetch_errors
 
 
-df, error_logs = fetch_portfolio_data(st.session_state.config["watchlist"], manual_override_active)
+df, error_logs = fetch_portfolio_data(
+    st.session_state.config["watchlist"], manual_override_active
+)
+
+# --- MARKET STATUS BANNER ---
+if manual_override_active:
+    st.warning("🟡 **Manual Override Active**: Live price polling is paused. Adjust prices in the sidebar.")
+elif market_is_open:
+    st.caption(f"🟢 **Market Status**: {market_reason} | Auto-Refreshing every {refresh_rate}s")
+else:
+    st.info(f"🔴 **Market Status**: {market_reason} | Background auto-refresh paused until market opens.")
 
 # --- TOP STATS & MARKET INDICES HEADER ROW ---
 tot_invested = df["Raw_Invested"].sum()
@@ -640,7 +786,11 @@ tot_current = df["Raw_Current"].sum()
 tot_pnl = tot_current - tot_invested
 tot_pnl_pct = (tot_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
 
-border_color = "#00CC96" if tot_pnl >= 0 else "#FF2B2B"
+border_color = (
+    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+    if tot_pnl >= 0
+    else APP_CONFIG["COLORS"]["LOSS_RED"]
+)
 
 index_data = fetch_market_indices()
 
@@ -689,7 +839,11 @@ with top_col2:
     i1, i2, i3 = st.columns(3)
     for idx_col, name in zip([i1, i2, i3], ["Sensex", "Nifty 50", "Bank Nifty"]):
         data = index_data.get(name, {"val": 0.0, "chg": 0.0, "pct": 0.0})
-        idx_color = "#00CC96" if data["chg"] >= 0 else "#FF2B2B"
+        idx_color = (
+            APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+            if data["chg"] >= 0
+            else APP_CONFIG["COLORS"]["LOSS_RED"]
+        )
         idx_sign = "+" if data["chg"] >= 0 else ""
 
         idx_col.markdown(
@@ -708,71 +862,86 @@ with top_col2:
 winning_df = df[df["Raw_PnL"] > 0]
 losing_df = df[df["Raw_PnL"] < 0]
 
+lbl_sl = APP_CONFIG["LABELS"]["SL"]
+lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
+lbl_t1 = APP_CONFIG["LABELS"]["T1"]
+lbl_t2 = APP_CONFIG["LABELS"]["T2"]
+
 totals_rows = [
     {
-        "Symbol": "🟢 TOTAL PROFITS",
+        "Symbol": APP_CONFIG["LABELS"]["SUMMARY_WIN"],
         "Status": "Summary",
         "Qty": winning_df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
         "P&L (₹)": winning_df["Raw_PnL"].sum(),
-        "P&L (%)": (winning_df["Raw_PnL"].sum() / winning_df["Raw_Invested"].sum() * 100)
+        "P&L (%)": (
+            winning_df["Raw_PnL"].sum() / winning_df["Raw_Invested"].sum() * 100
+        )
         if winning_df["Raw_Invested"].sum() > 0
         else 0,
-        "Stop Loss": None,
-        "SL P&L (₹)": "-",
-        "Trailing SL": None,
-        "TSL P&L (₹)": "-",
-        "Target 1": None,
-        "T1 P&L (₹)": "-",
-        "Target 2": None,
-        "T2 P&L (₹)": "-",
+        lbl_sl: None,
+        f"{lbl_sl} P&L (₹)": "-",
+        lbl_tsl: None,
+        f"{lbl_tsl} P&L (₹)": "-",
+        lbl_t1: None,
+        f"{lbl_t1} P&L (₹)": "-",
+        lbl_t2: None,
+        f"{lbl_t2} P&L (₹)": "-",
         "Invested (₹)": winning_df["Raw_Invested"].sum(),
         "Current Val (₹)": winning_df["Raw_Current"].sum(),
         "Weight (%)": round(
-            (winning_df["Raw_Invested"].sum() / tot_invested * 100) if tot_invested > 0 else 0, 2
+            (winning_df["Raw_Invested"].sum() / tot_invested * 100)
+            if tot_invested > 0
+            else 0,
+            2,
         ),
     },
     {
-        "Symbol": "🔴 TOTAL LOSSES",
+        "Symbol": APP_CONFIG["LABELS"]["SUMMARY_LOSS"],
         "Status": "Summary",
         "Qty": losing_df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
         "P&L (₹)": losing_df["Raw_PnL"].sum(),
-        "P&L (%)": (losing_df["Raw_PnL"].sum() / losing_df["Raw_Invested"].sum() * 100)
+        "P&L (%)": (
+            losing_df["Raw_PnL"].sum() / losing_df["Raw_Invested"].sum() * 100
+        )
         if losing_df["Raw_Invested"].sum() > 0
         else 0,
-        "Stop Loss": None,
-        "SL P&L (₹)": "-",
-        "Trailing SL": None,
-        "TSL P&L (₹)": "-",
-        "Target 1": None,
-        "T1 P&L (₹)": "-",
-        "Target 2": None,
-        "T2 P&L (₹)": "-",
+        lbl_sl: None,
+        f"{lbl_sl} P&L (₹)": "-",
+        lbl_tsl: None,
+        f"{lbl_tsl} P&L (₹)": "-",
+        lbl_t1: None,
+        f"{lbl_t1} P&L (₹)": "-",
+        lbl_t2: None,
+        f"{lbl_t2} P&L (₹)": "-",
         "Invested (₹)": losing_df["Raw_Invested"].sum(),
         "Current Val (₹)": losing_df["Raw_Current"].sum(),
         "Weight (%)": round(
-            (losing_df["Raw_Invested"].sum() / tot_invested * 100) if tot_invested > 0 else 0, 2
+            (losing_df["Raw_Invested"].sum() / tot_invested * 100)
+            if tot_invested > 0
+            else 0,
+            2,
         ),
     },
     {
-        "Symbol": "💼 NET TOTAL",
+        "Symbol": APP_CONFIG["LABELS"]["SUMMARY_NET"],
         "Status": "Summary",
         "Qty": df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
         "P&L (₹)": tot_pnl,
         "P&L (%)": tot_pnl_pct,
-        "Stop Loss": None,
-        "SL P&L (₹)": "-",
-        "Trailing SL": None,
-        "TSL P&L (₹)": "-",
-        "Target 1": None,
-        "T1 P&L (₹)": "-",
-        "Target 2": None,
-        "T2 P&L (₹)": "-",
+        lbl_sl: None,
+        f"{lbl_sl} P&L (₹)": "-",
+        lbl_tsl: None,
+        f"{lbl_tsl} P&L (₹)": "-",
+        lbl_t1: None,
+        f"{lbl_t1} P&L (₹)": "-",
+        lbl_t2: None,
+        f"{lbl_t2} P&L (₹)": "-",
         "Invested (₹)": tot_invested,
         "Current Val (₹)": tot_current,
         "Weight (%)": 100.0,
@@ -781,7 +950,6 @@ totals_rows = [
 
 df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
 
-# REAL HTML TABLE ENGINE
 if view_preset == "🔍 Main Focus View":
     display_cols = [
         "Symbol",
@@ -791,7 +959,7 @@ if view_preset == "🔍 Main Focus View":
         "LTP (₹)",
         "P&L (₹)",
         "P&L (%)",
-        "Stop Loss",
+        lbl_sl,
     ]
 else:
     display_cols = [
@@ -802,14 +970,14 @@ else:
         "LTP (₹)",
         "P&L (₹)",
         "P&L (%)",
-        "Stop Loss",
-        "SL P&L (₹)",
-        "Trailing SL",
-        "TSL P&L (₹)",
-        "Target 1",
-        "T1 P&L (₹)",
-        "Target 2",
-        "T2 P&L (₹)",
+        lbl_sl,
+        f"{lbl_sl} P&L (₹)",
+        lbl_tsl,
+        f"{lbl_tsl} P&L (₹)",
+        lbl_t1,
+        f"{lbl_t1} P&L (₹)",
+        lbl_t2,
+        f"{lbl_t2} P&L (₹)",
         "Invested (₹)",
         "Current Val (₹)",
         "Weight (%)",
@@ -820,17 +988,19 @@ render_df = df_table[display_cols].copy()
 currency_cols = [
     "Avg Buy (₹)",
     "LTP (₹)",
-    "Stop Loss",
-    "Trailing SL",
-    "Target 1",
-    "Target 2",
+    lbl_sl,
+    lbl_tsl,
+    lbl_t1,
+    lbl_t2,
     "Invested (₹)",
     "Current Val (₹)",
 ]
 for col in currency_cols:
     if col in render_df.columns:
         render_df[col] = render_df[col].apply(
-            lambda x: f"₹{x:,.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
+            lambda x: f"₹{x:,.2f}"
+            if pd.notnull(x) and isinstance(x, (int, float))
+            else "-"
         )
 
 if "Weight (%)" in render_df.columns:
@@ -850,14 +1020,22 @@ html_rows.append("<tbody>")
 for _, row in render_df.iterrows():
     row_cells = []
     is_summary = row.get("Status") == "Summary"
-    row_bg = "background-color: #161B22; font-weight: bold;" if is_summary else ""
+    row_bg = (
+        f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
+        if is_summary
+        else ""
+    )
 
     for col in display_cols:
         val = row[col]
         cell_style = ""
 
         if col in ["P&L (₹)", "P&L (%)"] and isinstance(val, (int, float)):
-            color = "#00CC96" if val >= 0 else "#FF2B2B"
+            color = (
+                APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                if val >= 0
+                else APP_CONFIG["COLORS"]["LOSS_RED"]
+            )
             sign = "+" if val >= 0 else ""
             val = f"{sign}₹{val:,.2f}" if col == "P&L (₹)" else f"{val:+.2f}%"
             cell_style = f"color: {color}; font-weight: bold;"
@@ -876,28 +1054,28 @@ full_html_table = f"""
         width: 100%;
         border-collapse: collapse;
         margin-bottom: 0.5rem;
-        background-color: #0E1117;
+        background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
         color: #FFFFFF;
         font-family: Source Sans Pro, sans-serif;
     }}
     .tv-portfolio-table th {{
-        background-color: #1F2937;
-        color: #9CA3AF;
+        background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
+        color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
         font-size: {tbl_header_rem}rem !important;
         font-weight: 800;
         padding: {padding_v}rem 0.6rem;
         text-align: left;
-        border-bottom: 2px solid #374151;
+        border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
         white-space: nowrap;
     }}
     .tv-portfolio-table td {{
         font-size: {tbl_font_rem}rem !important;
         padding: {padding_v}rem 0.6rem;
-        border-bottom: 1px solid #1F2937;
+        border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
         white-space: nowrap;
     }}
     .tv-portfolio-table tr:hover {{
-        background-color: #1F2937;
+        background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
     }}
 </style>
 <div style="overflow-x: auto; width: 100%;">
@@ -944,16 +1122,23 @@ def create_candlestick_chart(row):
                 low=df_10d["Low"],
                 close=df_10d["Close"],
                 name="10D Candles",
-                increasing_line_color="#00CC96",
-                decreasing_line_color="#FF2B2B",
+                increasing_line_color=APP_CONFIG["COLORS"]["PROFIT_GREEN"],
+                decreasing_line_color=APP_CONFIG["COLORS"]["LOSS_RED"],
             )
         )
         dates = list(df_10d.index)
     else:
         dates = [datetime.now().strftime("%Y-%m-%d")]
 
-    sl_val = float(row.get("Stop Loss", 0.0))
-    tsl_val = float(row.get("Trailing SL", 0.0))
+    lbl_sl = APP_CONFIG["LABELS"]["SL"]
+    lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
+    lbl_buy = APP_CONFIG["LABELS"]["BUY"]
+    lbl_ltp = APP_CONFIG["LABELS"]["LTP"]
+    lbl_t1 = APP_CONFIG["LABELS"]["T1"]
+    lbl_t2 = APP_CONFIG["LABELS"]["T2"]
+
+    sl_val = float(row.get(lbl_sl, 0.0))
+    tsl_val = float(row.get(lbl_tsl, 0.0))
     buy_val = float(row.get("Avg Buy (₹)", 0.0))
     ltp_val = float(row.get("LTP (₹)", 0.0))
     qty = int(row.get("Qty", 0))
@@ -962,28 +1147,68 @@ def create_candlestick_chart(row):
     current = ltp_val * qty
     pnl = current - invested
     pnl_pct = (pnl / invested * 100) if invested > 0 else 0.0
-    pnl_color = "#00CC96" if pnl >= 0 else "#FF2B2B"
+    pnl_color = (
+        APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+        if pnl >= 0
+        else APP_CONFIG["COLORS"]["LOSS_RED"]
+    )
     pnl_sign = "+" if pnl >= 0 else ""
 
-    t1_val = float(row.get("Target 1", 0.0))
-    t2_val = float(row.get("Target 2", 0.0))
+    t1_val = float(row.get(lbl_t1, 0.0))
+    t2_val = float(row.get(lbl_t2, 0.0))
 
     raw_levels = [
-        {"name": "SL", "val": sl_val, "color": "#FF872B", "dash": "dash", "width": 1.5},
-        {"name": "TSL", "val": tsl_val, "color": "#77671F", "dash": "dash", "width": 1.5},
-        {"name": "BUY", "val": buy_val, "color": "#1F77B4", "dash": "solid", "width": 2.0},
-        {"name": "LTP", "val": ltp_val, "color": "#FF0000", "dash": "dot", "width": 2.0},
-        {"name": "TARGET 1", "val": t1_val, "color": "#00CC96", "dash": "dash", "width": 1.5},
-        {"name": "TARGET 2", "val": t2_val, "color": "#00FF7F", "dash": "dash", "width": 1.5},
+        {
+            "name": lbl_sl,
+            "val": sl_val,
+            "color": APP_CONFIG["COLORS"]["SL_ORANGE"],
+            "dash": "dash",
+            "width": 1.5,
+        },
+        {
+            "name": lbl_tsl,
+            "val": tsl_val,
+            "color": APP_CONFIG["COLORS"]["TSL_YELLOW"],
+            "dash": "dash",
+            "width": 1.5,
+        },
+        {
+            "name": lbl_buy,
+            "val": buy_val,
+            "color": APP_CONFIG["COLORS"]["BUY_BLUE"],
+            "dash": "solid",
+            "width": 2.0,
+        },
+        {
+            "name": lbl_ltp,
+            "val": ltp_val,
+            "color": APP_CONFIG["COLORS"]["LTP_RED"],
+            "dash": "dot",
+            "width": 2.0,
+        },
+        {
+            "name": lbl_t1,
+            "val": t1_val,
+            "color": APP_CONFIG["COLORS"]["PROFIT_GREEN"],
+            "dash": "dash",
+            "width": 1.5,
+        },
+        {
+            "name": lbl_t2,
+            "val": t2_val,
+            "color": APP_CONFIG["COLORS"]["PROFIT_GREEN"],
+            "dash": "dash",
+            "width": 1.5,
+        },
     ]
 
     horizontal_levels = []
     for item in raw_levels:
         if item["val"] <= 0:
             continue
-        if item["name"] == "TSL" and sl_val > 0 and abs(tsl_val - sl_val) < 0.01:
+        if item["name"] == lbl_tsl and sl_val > 0 and abs(tsl_val - sl_val) < 0.01:
             continue
-        if item["name"] == "TARGET 2" and t1_val > 0 and abs(t2_val - t1_val) < 0.01:
+        if item["name"] == lbl_t2 and t1_val > 0 and abs(t2_val - t1_val) < 0.01:
             continue
         horizontal_levels.append(item)
 
@@ -1007,14 +1232,22 @@ def create_candlestick_chart(row):
             )
         )
 
-        if item["name"] != "BUY":
-            badge_x = ltp_align_date if item["name"] == "LTP" else align_date
+        if item["name"] != lbl_buy:
+            badge_x = ltp_align_date if item["name"] == lbl_ltp else align_date
             badge_text = f" <b>{item['name']}</b> "
 
-            if item["name"] in ["SL", "TSL", "TARGET 1", "TARGET 2"] and buy_val > 0 and qty > 0:
+            if (
+                item["name"] in [lbl_sl, lbl_tsl, lbl_t1, lbl_t2]
+                and buy_val > 0
+                and qty > 0
+            ):
                 lvl_pnl = (item["val"] - buy_val) * qty
                 lvl_pct = ((item["val"] - buy_val) / buy_val) * 100
-                lvl_color = "#00CC96" if lvl_pnl >= 0 else "#FF2B2B"
+                lvl_color = (
+                    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                    if lvl_pnl >= 0
+                    else APP_CONFIG["COLORS"]["LOSS_RED"]
+                )
                 lvl_sign = "+" if lvl_pnl >= 0 else ""
                 badge_text = (
                     f" <b>{item['name']}</b> | "
@@ -1053,20 +1286,20 @@ def create_candlestick_chart(row):
         fig.add_annotation(
             x=align_date,
             y=buy_val,
-            text=f" <span style='color:#1F77B4;'><b>{qty}</b></span> | <span style='color:{pnl_color};'><b>{pnl_sign}₹{pnl:,.2f} ({pnl_pct:+.1f}%)</b></span> ",
+            text=f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>{qty}</b></span> | <span style='color:{pnl_color};'><b>{pnl_sign}₹{pnl:,.2f} ({pnl_pct:+.1f}%)</b></span> ",
             showarrow=False,
             font=dict(size=int(14 * fs_chart)),
             bgcolor="#FFFFFF",
-            bordercolor="#1F77B4",
+            bordercolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
             borderwidth=2,
             borderpad=4,
             yanchor="middle",
             xanchor="center",
         )
 
-    if auto_zoom_risk_range and sl_val > 0 and row.get("Target 2", 0) > 0:
+    if auto_zoom_risk_range and sl_val > 0 and row.get(lbl_t2, 0) > 0:
         min_bound = sl_val * 0.98
-        max_bound = float(row["Target 2"]) * 1.02
+        max_bound = float(row[lbl_t2]) * 1.02
     else:
         min_bound = (
             min(df_10d["Low"].min(), sl_val)
@@ -1074,14 +1307,14 @@ def create_candlestick_chart(row):
             else sl_val
         )
         max_bound = (
-            max(df_10d["High"].max(), float(row.get("Target 2", 0)))
+            max(df_10d["High"].max(), float(row.get(lbl_t2, 0)))
             if isinstance(df_10d, pd.DataFrame) and not df_10d.empty
-            else float(row.get("Target 2", 0))
+            else float(row.get(lbl_t2, 0))
         )
 
     fig.update_layout(
         title=dict(
-            text=f"<b>{row['Symbol']}</b> ({row['Status']}) | Live LTP: <span style='color:#FF0000;'><b>₹{row['LTP (₹)']}</b></span>",
+            text=f"<b>{row['Symbol']}</b> ({row['Status']}) | Live LTP: <span style='color:{APP_CONFIG['COLORS']['LTP_RED']};'><b>₹{row['LTP (₹)']}</b></span>",
             font=dict(size=c_title_size),
         ),
         xaxis=dict(
