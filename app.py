@@ -370,13 +370,14 @@ def open_watchlist_manager():
                 parsed_config = json.load(uploaded_file)
                 if "watchlist" in parsed_config:
                     st.session_state.config = parsed_config
-                    save_config(parsed_config)
-                    st.success("Config uploaded and synced!")
+                    save_config(parsed_config)  # Persists to Firestore
+                    st.success("Config uploaded and synced to cloud!")
                     st.rerun()
                 else:
                     st.error("Invalid JSON format: missing 'watchlist' key.")
             except Exception as err:
-                st.error(f"JSON Parse Error: {err}")
+                st.error(f"Config Upload / Cloud Sync Error: {err}")
+                st.stop()  # Keeps error visible instead of auto-refreshing
 
     st.divider()
     st.subheader("📋 Current Watchlist Sequence")
