@@ -36,6 +36,24 @@ if "table_view_preset" not in st.session_state:
 fs_table = st.session_state.table_font_scale
 fs_chart = st.session_state.chart_font_scale
 
+
+# --- COMPACT INDIAN NUMBER FORMATTER (Lakhs, Thousands, Crores) ---
+def format_compact_inr(val):
+    if val is None or not isinstance(val, (int, float)):
+        return "-"
+    abs_val = abs(val)
+    sign = "-" if val < 0 else ""
+
+    if abs_val >= 1_00_00_000:  # 1 Crore
+        return f"{sign}₹{abs_val / 1_00_00_000:.2f}Cr"
+    elif abs_val >= 1_00_000:  # 1 Lakh
+        return f"{sign}₹{abs_val / 1_00_000:.2f}L"
+    elif abs_val >= 1_000:  # 1 Thousand
+        return f"{sign}₹{abs_val / 1_000:.1f}K"
+    else:
+        return f"{sign}₹{abs_val:,.2f}"
+
+
 # --- INJECT DYNAMIC CSS ---
 st.markdown(
     f"""
@@ -73,7 +91,7 @@ st.markdown(
             margin-bottom: 0.4rem !important;
         }}
 
-        /* Stat Card Formatting */
+        /* Stat Card Formatting (Larger Fonts for TV) */
         .stat-card {{
             background-color: #0E1117;
             padding: 0.65rem 0.85rem;
@@ -84,16 +102,17 @@ st.markdown(
             margin-bottom: 0.5rem;
         }}
         .stat-label {{
-            font-size: {0.9 * fs_chart:.2f}rem;
+            font-size: {1.05 * fs_chart:.2f}rem;
             color: #94A3B8;
-            font-weight: 600;
+            font-weight: 700;
             text-transform: uppercase;
         }}
         .stat-value {{
-            font-size: {1.6 * fs_chart:.2f}rem;
-            font-weight: 800;
+            font-size: {2.0 * fs_chart:.2f}rem;
+            font-weight: 900;
             color: #FFFFFF;
             margin-top: 0.1rem;
+            white-space: nowrap;
         }}
 
         /* Index Card Formatting */
@@ -106,18 +125,20 @@ st.markdown(
             margin-bottom: 0.5rem;
         }}
         .index-label {{
-            font-size: {0.9 * fs_chart:.2f}rem;
+            font-size: {1.0 * fs_chart:.2f}rem;
             color: #A3B8CC;
-            font-weight: 600;
+            font-weight: 700;
         }}
         .index-val {{
-            font-size: {1.35 * fs_chart:.2f}rem;
-            font-weight: 800;
+            font-size: {1.65 * fs_chart:.2f}rem;
+            font-weight: 900;
             color: #FFFFFF;
+            white-space: nowrap;
         }}
         .index-chg {{
-            font-size: {0.95 * fs_chart:.2f}rem;
-            font-weight: 700;
+            font-size: {1.1 * fs_chart:.2f}rem;
+            font-weight: 800;
+            white-space: nowrap;
         }}
     </style>
 """,
@@ -620,14 +641,13 @@ def fetch_portfolio_data(watchlist, use_manual_override):
 
 df, error_logs = fetch_portfolio_data(st.session_state.config["watchlist"], manual_override_active)
 
-# --- TOP STATS & MARKET INDICES HEADER ROW ---
+# --- TOP STATS & MARKET INDICES HEADER ROW (WITH SHORT FORMAT L/K) ---
 tot_invested = df["Raw_Invested"].sum()
 tot_current = df["Raw_Current"].sum()
 tot_pnl = tot_current - tot_invested
 tot_pnl_pct = (tot_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
 
 border_color = "#00CC96" if tot_pnl >= 0 else "#FF2B2B"
-pnl_sign = "+" if tot_pnl >= 0 else ""
 
 index_data = fetch_market_indices()
 
@@ -638,8 +658,8 @@ with top_col1:
     s1.markdown(
         f"""
         <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Net P&L (₹)</div>
-            <div class="stat-value" style="color:{border_color};">{pnl_sign}₹{abs(tot_pnl):,.2f}</div>
+            <div class="stat-label">Net P&L</div>
+            <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_pnl)}</div>
         </div>
     """,
         unsafe_allow_html=True,
@@ -647,7 +667,7 @@ with top_col1:
     s2.markdown(
         f"""
         <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Total Return</div>
+            <div class="stat-label">Return</div>
             <div class="stat-value" style="color:{border_color};">{tot_pnl_pct:+.2f}%</div>
         </div>
     """,
@@ -656,8 +676,8 @@ with top_col1:
     s3.markdown(
         f"""
         <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Total Invested</div>
-            <div class="stat-value">₹{tot_invested:,.0f}</div>
+            <div class="stat-label">Invested</div>
+            <div class="stat-value">{format_compact_inr(tot_invested)}</div>
         </div>
     """,
         unsafe_allow_html=True,
@@ -665,8 +685,8 @@ with top_col1:
     s4.markdown(
         f"""
         <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Current Value</div>
-            <div class="stat-value">₹{tot_current:,.0f}</div>
+            <div class="stat-label">Current Val</div>
+            <div class="stat-value">{format_compact_inr(tot_current)}</div>
         </div>
     """,
         unsafe_allow_html=True,
@@ -683,8 +703,8 @@ with top_col2:
             f"""
             <div class="index-card">
                 <div class="index-label">{name}</div>
-                <div class="index-val">{data['val']:,.2f}</div>
-                <div class="index-chg" style="color:{idx_color};">{idx_sign}{data['chg']:,.2f} ({idx_sign}{data['pct']:.2f}%)</div>
+                <div class="index-val">{data['val']:,.0f}</div>
+                <div class="index-chg" style="color:{idx_color};">{idx_sign}{data['chg']:,.0f} ({idx_sign}{data['pct']:.1f}%)</div>
             </div>
         """,
             unsafe_allow_html=True,
@@ -970,7 +990,6 @@ def create_candlestick_chart(row):
             continue
         if item["name"] == "TSL" and sl_val > 0 and abs(tsl_val - sl_val) < 0.01:
             continue
-        # DEDUPLICATE TARGET 2 IF IDENTICAL TO TARGET 1
         if item["name"] == "TARGET 2" and t1_val > 0 and abs(t2_val - t1_val) < 0.01:
             continue
         horizontal_levels.append(item)
