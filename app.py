@@ -90,18 +90,21 @@ if not st.user.is_logged_in:
 
 user_email = st.user.email
 
-# --- SESSION STATES ---
+# --- SESSION STATES (CALIBRATED FOR 1080P FULL HD) ---
 if "table_font_scale" not in st.session_state:
-    st.session_state.table_font_scale = 1.20
+    st.session_state.table_font_scale = 1.00
 
 if "chart_font_scale" not in st.session_state:
-    st.session_state.chart_font_scale = 1.10
+    st.session_state.chart_font_scale = 1.00
 
 if "table_view_preset" not in st.session_state:
     st.session_state.table_view_preset = "🔍 Main Focus View"
 
 if "is_modal_open" not in st.session_state:
     st.session_state.is_modal_open = False
+
+if "show_table" not in st.session_state:
+    st.session_state.show_table = True
 
 fs_table = st.session_state.table_font_scale
 fs_chart = st.session_state.chart_font_scale
@@ -180,7 +183,7 @@ def format_compact_inr(val):
     else:
         return f"{sign}{sym}{abs_val:,.2f}"
 
-# --- INJECT DYNAMIC CSS ---
+# --- INJECT DYNAMIC CSS (OPTIMIZED FOR 1080P VIEWPORTS) ---
 st.markdown(
     f"""
     <style>
@@ -194,62 +197,62 @@ st.markdown(
         }}
 
         .block-container {{
-            padding-top: 0.5rem !important;
-            padding-bottom: 0.5rem !important;
-            padding-left: 0.8rem !important;
-            padding-right: 0.8rem !important;
+            padding-top: 0.4rem !important;
+            padding-bottom: 0.4rem !important;
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
             max-width: 100% !important;
         }}
 
         div[data-testid="stVerticalBlock"] {{
-            gap: 0.3rem !important;
+            gap: 0.25rem !important;
         }}
 
         .stat-card {{
             background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
-            padding: 0.5rem 0.75rem;
-            border-radius: 8px;
+            padding: 0.4rem 0.6rem;
+            border-radius: 6px;
             border-width: 2px;
             border-style: solid;
             text-align: left;
-            margin-bottom: 0.3rem;
+            margin-bottom: 0.2rem;
         }}
         .stat-label {{
-            font-size: {1.05 * fs_chart:.2f}rem;
+            font-size: {0.85 * fs_chart:.2f}rem;
             color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
             font-weight: 700;
             text-transform: uppercase;
         }}
         .stat-value {{
-            font-size: {2.0 * fs_chart:.2f}rem;
-            font-weight: 900;
+            font-size: {1.45 * fs_chart:.2f}rem;
+            font-weight: 800;
             color: #FFFFFF;
-            margin-top: 0.1rem;
+            margin-top: 0.05rem;
             white-space: nowrap;
         }}
 
         .index-card {{
             background-color: {APP_CONFIG["COLORS"]["BG_CARD"]};
-            padding: 0.5rem 0.75rem;
-            border-radius: 8px;
+            padding: 0.4rem 0.6rem;
+            border-radius: 6px;
             border: 1px solid {APP_CONFIG["COLORS"]["BORDER_CARD"]};
             text-align: right;
-            margin-bottom: 0.3rem;
+            margin-bottom: 0.2rem;
         }}
         .index-label {{
-            font-size: {1.0 * fs_chart:.2f}rem;
+            font-size: {0.85 * fs_chart:.2f}rem;
             color: #A3B8CC;
             font-weight: 700;
         }}
         .index-val {{
-            font-size: {1.65 * fs_chart:.2f}rem;
-            font-weight: 900;
+            font-size: {1.25 * fs_chart:.2f}rem;
+            font-weight: 800;
             color: #FFFFFF;
             white-space: nowrap;
         }}
         .index-chg {{
-            font-size: {1.1 * fs_chart:.2f}rem;
-            font-weight: 800;
+            font-size: {0.9 * fs_chart:.2f}rem;
+            font-weight: 700;
             white-space: nowrap;
         }}
     </style>
@@ -370,14 +373,14 @@ def open_watchlist_manager():
                 parsed_config = json.load(uploaded_file)
                 if "watchlist" in parsed_config:
                     st.session_state.config = parsed_config
-                    save_config(parsed_config)  # Persists to Firestore
-                    st.success("Config uploaded and synced to cloud!")
+                    save_config(parsed_config)
+                    st.success("Config uploaded and synced!")
                     st.rerun()
                 else:
                     st.error("Invalid JSON format: missing 'watchlist' key.")
             except Exception as err:
                 st.error(f"Config Upload / Cloud Sync Error: {err}")
-                st.stop()  # Keeps error visible instead of auto-refreshing
+                st.stop()
 
     st.divider()
     st.subheader("📋 Current Watchlist Sequence")
@@ -573,44 +576,50 @@ if st.sidebar.button(
 
 st.sidebar.divider()
 
-# --- TABLE PRESET VIEW CONTROL ---
-st.sidebar.subheader("👁️ Table Preset View")
-view_preset = st.sidebar.radio(
-    "Select Display Preset:",
-    options=["🔍 Main Focus View", "📋 Full Detail View"],
-    index=0 if st.session_state.table_view_preset == "🔍 Main Focus View" else 1,
-)
-st.session_state.table_view_preset = view_preset
+# --- SIDEBAR DISPLAY & TABLE TOGGLE CONTROLS ---
+st.sidebar.subheader("👁️ Display & Layout Controls")
+
+show_table_toggle = st.sidebar.toggle("👁️ Show Main Table", value=st.session_state.show_table)
+st.session_state.show_table = show_table_toggle
+
+if st.session_state.show_table:
+    view_preset = st.sidebar.radio(
+        "Select Display Preset:",
+        options=["🔍 Main Focus View", "📋 Full Detail View"],
+        index=0 if st.session_state.table_view_preset == "🔍 Main Focus View" else 1,
+    )
+    st.session_state.table_view_preset = view_preset
 
 st.sidebar.divider()
 
 # --- INDEPENDENT FONT CONTROLLERS ---
-st.sidebar.subheader("📋 Main Table Font Size")
-t_col1, t_col2, t_col3 = st.sidebar.columns([1, 1, 1])
+if st.session_state.show_table:
+    st.sidebar.subheader("📋 Main Table Font Size")
+    t_col1, t_col2, t_col3 = st.sidebar.columns([1, 1, 1])
 
-if t_col1.button("🔍 A-", key="tbl_f_dn", use_container_width=True):
-    st.session_state.table_font_scale = max(
-        0.8, round(st.session_state.table_font_scale - 0.1, 2)
+    if t_col1.button("🔍 A-", key="tbl_f_dn", use_container_width=True):
+        st.session_state.table_font_scale = max(
+            0.7, round(st.session_state.table_font_scale - 0.1, 2)
+        )
+        st.rerun()
+
+    t_col2.markdown(
+        f"<div style='text-align:center; font-weight:bold; padding-top:0.3rem;'>{st.session_state.table_font_scale:.1f}x</div>",
+        unsafe_allow_html=True,
     )
-    st.rerun()
 
-t_col2.markdown(
-    f"<div style='text-align:center; font-weight:bold; padding-top:0.3rem;'>{st.session_state.table_font_scale:.1f}x</div>",
-    unsafe_allow_html=True,
-)
-
-if t_col3.button("🔍 A+", key="tbl_f_up", use_container_width=True):
-    st.session_state.table_font_scale = min(
-        2.5, round(st.session_state.table_font_scale + 0.1, 2)
-    )
-    st.rerun()
+    if t_col3.button("🔍 A+", key="tbl_f_up", use_container_width=True):
+        st.session_state.table_font_scale = min(
+            2.0, round(st.session_state.table_font_scale + 0.1, 2)
+        )
+        st.rerun()
 
 st.sidebar.subheader("📊 Charts & UI Font Size")
 c_col1, c_col2, c_col3 = st.sidebar.columns([1, 1, 1])
 
 if c_col1.button("🔍 A-", key="crt_f_dn", use_container_width=True):
     st.session_state.chart_font_scale = max(
-        0.8, round(st.session_state.chart_font_scale - 0.1, 2)
+        0.7, round(st.session_state.chart_font_scale - 0.1, 2)
     )
     st.rerun()
 
@@ -621,7 +630,7 @@ c_col2.markdown(
 
 if c_col3.button("🔍 A+", key="crt_f_up", use_container_width=True):
     st.session_state.chart_font_scale = min(
-        2.2, round(st.session_state.chart_font_scale + 0.1, 2)
+        2.0, round(st.session_state.chart_font_scale + 0.1, 2)
     )
     st.rerun()
 
@@ -674,7 +683,7 @@ if (
 ):
     st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 
-# --- FETCH 10-DAY HISTORY ENGINE ---
+# --- FETCH 10-DAY HISTORY & PREVIOUS CLOSE ENGINE ---
 def get_10day_history(sym):
     ticker_obj = yf.Ticker(sym)
     df_daily = ticker_obj.history(period="15d", interval="1d")
@@ -688,12 +697,12 @@ def get_10day_history(sym):
     try:
         fast_info = ticker_obj.fast_info
         ltp = round(float(fast_info.last_price), 2)
-        method = "fast_info"
+        prev_close = float(fast_info.previous_close)
     except Exception:
         ltp = round(float(df_10d["Close"].iloc[-1]), 2)
-        method = "history_fallback"
+        prev_close = float(df_10d["Close"].iloc[-2]) if len(df_10d) > 1 else ltp
 
-    return ltp, df_10d, method
+    return ltp, prev_close, df_10d
 
 def fetch_portfolio_data(watchlist, use_manual_override):
     rows = []
@@ -724,18 +733,28 @@ def fetch_portfolio_data(watchlist, use_manual_override):
             ltp = manual_ltp
             status = "🟡 Manual"
             cached = st.session_state.stock_cache.get(sym, {})
+            prev_close = cached.get("prev_close", buy_price)
             df_10d = cached.get("df_10d", pd.DataFrame())
         else:
             try:
-                ltp, df_10d, _ = get_10day_history(sym)
+                ltp, prev_close, df_10d = get_10day_history(sym)
                 status = "🟢 Live"
-                st.session_state.stock_cache[sym] = {"ltp": ltp, "df_10d": df_10d}
+                st.session_state.stock_cache[sym] = {
+                    "ltp": ltp,
+                    "prev_close": prev_close,
+                    "df_10d": df_10d,
+                }
             except Exception as err:
                 cached = st.session_state.stock_cache.get(sym, {})
                 ltp = cached.get("ltp", buy_price)
+                prev_close = cached.get("prev_close", buy_price)
                 df_10d = cached.get("df_10d", pd.DataFrame())
                 status = "🔴 Stale"
                 fetch_errors.append(f"**{sym}**: {err}")
+
+        # Day's Gain Calculation
+        day_pnl = (ltp - prev_close) * qty if prev_close > 0 else 0.0
+        day_pnl_pct = ((ltp - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
 
         current = ltp * qty
         pnl = current - invested
@@ -762,6 +781,8 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Qty": qty,
                 "Avg Buy (₹)": buy_price,
                 "LTP (₹)": ltp,
+                "Day's Gain/Loss": round(day_pnl, 2),
+                "Day's Gain/Loss (%)": round(day_pnl_pct, 2),
                 "P&L (₹)": round(pnl, 2),
                 "P&L (%)": round(pnl_pct, 2),
                 lbl_sl: sl,
@@ -775,6 +796,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Invested (₹)": round(invested, 2),
                 "Current Val (₹)": round(current, 2),
                 "Weight (%)": round(weight_pct, 2),
+                "Raw_DayPnL": day_pnl,
                 "Raw_PnL": pnl,
                 "Raw_Invested": invested,
                 "Raw_Current": current,
@@ -873,7 +895,7 @@ with top_col2:
             unsafe_allow_html=True,
         )
 
-# --- CONSTRUCT MAIN TABLE ---
+# --- CONSTRUCT & RENDER MAIN TABLE (WITH COLLAPSIBLE CONTAINER) ---
 winning_df = df[df["Raw_PnL"] > 0]
 losing_df = df[df["Raw_PnL"] < 0]
 
@@ -889,6 +911,7 @@ totals_rows = [
         "Qty": winning_df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
+        "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
         "P&L (₹)": winning_df["Raw_PnL"].sum(),
         "P&L (%)": (
             winning_df["Raw_PnL"].sum() / winning_df["Raw_Invested"].sum() * 100
@@ -918,6 +941,7 @@ totals_rows = [
         "Qty": losing_df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
+        "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
         "P&L (₹)": losing_df["Raw_PnL"].sum(),
         "P&L (%)": (
             losing_df["Raw_PnL"].sum() / losing_df["Raw_Invested"].sum() * 100
@@ -947,6 +971,7 @@ totals_rows = [
         "Qty": df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
+        "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
         "P&L (₹)": tot_pnl,
         "P&L (%)": tot_pnl_pct,
         lbl_sl: None,
@@ -965,148 +990,173 @@ totals_rows = [
 
 df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
 
-if view_preset == "🔍 Main Focus View":
-    display_cols = [
-        "Symbol",
-        "Status",
-        "Qty",
+if st.session_state.show_table:
+    if st.session_state.table_view_preset == "🔍 Main Focus View":
+        display_cols = [
+            "Symbol",
+            "Status",
+            "Qty",
+            "Avg Buy (₹)",
+            "LTP (₹)",
+            "Day's Gain/Loss",
+            "P&L (₹)",
+            "P&L (%)",
+            lbl_sl,
+        ]
+    else:
+        display_cols = [
+            "Symbol",
+            "Status",
+            "Qty",
+            "Avg Buy (₹)",
+            "LTP (₹)",
+            "Day's Gain/Loss",
+            "P&L (₹)",
+            "P&L (%)",
+            lbl_sl,
+            f"{lbl_sl} P&L (₹)",
+            lbl_tsl,
+            f"{lbl_tsl} P&L (₹)",
+            lbl_t1,
+            f"{lbl_t1} P&L (₹)",
+            lbl_t2,
+            f"{lbl_t2} P&L (₹)",
+            "Invested (₹)",
+            "Current Val (₹)",
+            "Weight (%)",
+        ]
+
+    render_df = df_table[display_cols].copy()
+
+    currency_cols = [
         "Avg Buy (₹)",
         "LTP (₹)",
-        "P&L (₹)",
-        "P&L (%)",
         lbl_sl,
-    ]
-else:
-    display_cols = [
-        "Symbol",
-        "Status",
-        "Qty",
-        "Avg Buy (₹)",
-        "LTP (₹)",
-        "P&L (₹)",
-        "P&L (%)",
-        lbl_sl,
-        f"{lbl_sl} P&L (₹)",
         lbl_tsl,
-        f"{lbl_tsl} P&L (₹)",
         lbl_t1,
-        f"{lbl_t1} P&L (₹)",
         lbl_t2,
-        f"{lbl_t2} P&L (₹)",
         "Invested (₹)",
         "Current Val (₹)",
-        "Weight (%)",
     ]
+    for col in currency_cols:
+        if col in render_df.columns:
+            render_df[col] = render_df[col].apply(
+                lambda x: f"₹{x:,.2f}"
+                if pd.notnull(x) and isinstance(x, (int, float))
+                else "-"
+            )
 
-render_df = df_table[display_cols].copy()
-
-currency_cols = [
-    "Avg Buy (₹)",
-    "LTP (₹)",
-    lbl_sl,
-    lbl_tsl,
-    lbl_t1,
-    lbl_t2,
-    "Invested (₹)",
-    "Current Val (₹)",
-]
-for col in currency_cols:
-    if col in render_df.columns:
-        render_df[col] = render_df[col].apply(
-            lambda x: f"₹{x:,.2f}"
-            if pd.notnull(x) and isinstance(x, (int, float))
-            else "-"
+    if "Weight (%)" in render_df.columns:
+        render_df["Weight (%)"] = render_df["Weight (%)"].apply(
+            lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
         )
 
-if "Weight (%)" in render_df.columns:
-    render_df["Weight (%)"] = render_df["Weight (%)"].apply(
-        lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
-    )
+    tbl_font_rem = round(0.9 * fs_table, 2)
+    tbl_header_rem = round(0.95 * fs_table, 2)
+    padding_v = round(0.3 * fs_table, 2)
 
-tbl_font_rem = round(1.0 * fs_table, 2)
-tbl_header_rem = round(1.1 * fs_table, 2)
-padding_v = round(0.4 * fs_table, 2)
+    html_rows = []
+    header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
+    html_rows.append(f"<thead><tr>{header_cells}</tr></thead>")
 
-html_rows = []
-header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
-html_rows.append(f"<thead><tr>{header_cells}</tr></thead>")
+    html_rows.append("<tbody>")
+    for idx, row in render_df.iterrows():
+        row_cells = []
+        is_summary = row.get("Status") == "Summary"
+        row_bg = (
+            f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
+            if is_summary
+            else ""
+        )
 
-html_rows.append("<tbody>")
-for _, row in render_df.iterrows():
-    row_cells = []
-    is_summary = row.get("Status") == "Summary"
-    row_bg = (
-        f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
-        if is_summary
-        else ""
-    )
+        for col in display_cols:
+            val = row[col]
+            cell_style = ""
 
-    for col in display_cols:
-        val = row[col]
-        cell_style = ""
+            # Format Day's Gain/Loss Column
+            if col == "Day's Gain/Loss" and isinstance(val, (int, float)):
+                color = (
+                    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                    if val >= 0
+                    else APP_CONFIG["COLORS"]["LOSS_RED"]
+                )
+                sign = "+" if val >= 0 else ""
+                
+                if not is_summary:
+                    pct = df.loc[idx, "Day's Gain/Loss (%)"]
+                    val = f"{sign}₹{val:,.2f} ({sign}{pct:.2f}%)"
+                else:
+                    val = f"{sign}₹{val:,.2f}"
+                cell_style = f"color: {color}; font-weight: bold;"
 
-        if col in ["P&L (₹)", "P&L (%)"] and isinstance(val, (int, float)):
-            color = (
-                APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-                if val >= 0
-                else APP_CONFIG["COLORS"]["LOSS_RED"]
-            )
-            sign = "+" if val >= 0 else ""
-            val = f"{sign}₹{val:,.2f}" if col == "P&L (₹)" else f"{val:+.2f}%"
-            cell_style = f"color: {color}; font-weight: bold;"
-        elif val is None:
-            val = "-"
+            # Format P&L Column
+            elif col in ["P&L (₹)", "P&L (%)"] and isinstance(val, (int, float)):
+                color = (
+                    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                    if val >= 0
+                    else APP_CONFIG["COLORS"]["LOSS_RED"]
+                )
+                sign = "+" if val >= 0 else ""
+                val = f"{sign}₹{val:,.2f}" if col == "P&L (₹)" else f"{val:+.2f}%"
+                cell_style = f"color: {color}; font-weight: bold;"
+            elif val is None:
+                val = "-"
 
-        row_cells.append(f"<td style='{cell_style}'>{val}</td>")
+            row_cells.append(f"<td style='{cell_style}'>{val}</td>")
 
-    html_rows.append(f"<tr style='{row_bg}'>{''.join(row_cells)}</tr>")
+        html_rows.append(f"<tr style='{row_bg}'>{''.join(row_cells)}</tr>")
 
-html_rows.append("</tbody>")
+    html_rows.append("</tbody>")
 
-full_html_table = f"""
-<style>
-    .tv-portfolio-table {{
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 0.5rem;
-        background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
-        color: #FFFFFF;
-        font-family: Source Sans Pro, sans-serif;
-    }}
-    .tv-portfolio-table th {{
-        background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
-        color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
-        font-size: {tbl_header_rem}rem !important;
-        font-weight: 800;
-        padding: {padding_v}rem 0.6rem;
-        text-align: left;
-        border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
-        white-space: nowrap;
-    }}
-    .tv-portfolio-table td {{
-        font-size: {tbl_font_rem}rem !important;
-        padding: {padding_v}rem 0.6rem;
-        border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
-        white-space: nowrap;
-    }}
-    .tv-portfolio-table tr:hover {{
-        background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
-    }}
-</style>
-<div style="overflow-x: auto; width: 100%;">
-    <table class="tv-portfolio-table">
-        {"".join(html_rows)}
-    </table>
-</div>
-"""
+    full_html_table = f"""
+    <style>
+        .tv-portfolio-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0.4rem;
+            background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
+            color: #FFFFFF;
+            font-family: Source Sans Pro, sans-serif;
+        }}
+        .tv-portfolio-table th {{
+            background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
+            color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
+            font-size: {tbl_header_rem}rem !important;
+            font-weight: 800;
+            padding: {padding_v}rem 0.5rem;
+            text-align: left;
+            border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
+            white-space: nowrap;
+        }}
+        .tv-portfolio-table td {{
+            font-size: {tbl_font_rem}rem !important;
+            padding: {padding_v}rem 0.5rem;
+            border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
+            white-space: nowrap;
+        }}
+        .tv-portfolio-table tr:hover {{
+            background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
+        }}
+    </style>
+    <div style="overflow-x: auto; width: 100%;">
+        <table class="tv-portfolio-table">
+            {"".join(html_rows)}
+        </table>
+    </div>
+    """
 
-st.markdown(full_html_table, unsafe_allow_html=True)
+    with st.expander("📋 Main Portfolio Table", expanded=True):
+        st.markdown(full_html_table, unsafe_allow_html=True)
 
 # --- SIDEBAR JOURNAL EXPORT ---
 st.sidebar.divider()
 st.sidebar.subheader("📥 Journal Export")
 
-journal_df = df_table[display_cols].copy()
+if st.session_state.show_table:
+    journal_df = df_table[display_cols].copy()
+else:
+    journal_df = df.copy()
+
 journal_df["Journal Comments"] = ""
 
 today_stamp = datetime.now().strftime("%Y-%m-%d")
@@ -1229,9 +1279,9 @@ def create_candlestick_chart(row):
     align_date = dates[mid_idx]
     ltp_align_date = dates[min(mid_idx + 2, len(dates) - 1)]
 
-    c_title_size = int(18 * fs_chart)
-    c_badge_size = int(13 * fs_chart)
-    c_axis_size = int(13 * fs_chart)
+    c_title_size = int(14 * fs_chart)
+    c_badge_size = int(11 * fs_chart)
+    c_axis_size = int(11 * fs_chart)
 
     for item in horizontal_levels:
         fig.add_trace(
@@ -1276,7 +1326,7 @@ def create_candlestick_chart(row):
                 bgcolor="#FFFFFF",
                 bordercolor=item["color"],
                 borderwidth=1.5,
-                borderpad=4,
+                borderpad=3,
                 yanchor="middle",
                 xanchor="center",
             )
@@ -1301,11 +1351,11 @@ def create_candlestick_chart(row):
             y=buy_val,
             text=f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>{qty}</b></span> | <span style='color:{pnl_color};'><b>{pnl_sign}₹{pnl:,.2f} ({pnl_pct:+.1f}%)</b></span> ",
             showarrow=False,
-            font=dict(size=int(14 * fs_chart)),
+            font=dict(size=int(12 * fs_chart)),
             bgcolor="#FFFFFF",
             bordercolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
-            borderwidth=2,
-            borderpad=4,
+            borderwidth=1.5,
+            borderpad=3,
             yanchor="middle",
             xanchor="center",
         )
@@ -1335,7 +1385,7 @@ def create_candlestick_chart(row):
             rangeslider=dict(visible=False),
             tickfont=dict(size=c_axis_size),
             showline=True,
-            linewidth=1.5,
+            linewidth=1.0,
             linecolor="#64748B",
             mirror=True,
         ),
@@ -1347,13 +1397,13 @@ def create_candlestick_chart(row):
             gridcolor="rgba(200,200,200,0.12)",
             side="right",
             showline=True,
-            linewidth=1.5,
+            linewidth=1.0,
             linecolor="#64748B",
             mirror=True,
         ),
-        height=int(440 * fs_chart),
+        height=int(360 * fs_chart),
         showlegend=False,
-        margin=dict(l=15, r=85, t=40, b=25),
+        margin=dict(l=10, r=70, t=35, b=20),
     )
 
     return fig
