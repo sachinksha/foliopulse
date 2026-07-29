@@ -90,7 +90,7 @@ if not st.user.is_logged_in:
 
 user_email = st.user.email
 
-# --- SESSION STATES (CALIBRATED FOR 1080P FULL HD) ---
+# --- SESSION STATES ---
 if "table_font_scale" not in st.session_state:
     st.session_state.table_font_scale = 1.00
 
@@ -116,6 +116,7 @@ DEFAULT_CONFIG = {
             "symbol": "M&MFIN.NS",
             "avg_buy_price": 280.00,
             "quantity": 100,
+            "trade_type": "DELIVERY",
             "stop_loss": 260.00,
             "trailing_sl": 270.00,
             "target_1": 310.00,
@@ -126,6 +127,7 @@ DEFAULT_CONFIG = {
             "symbol": "TITAN.NS",
             "avg_buy_price": 3400.00,
             "quantity": 15,
+            "trade_type": "DELIVERY",
             "stop_loss": 3200.00,
             "trailing_sl": 3300.00,
             "target_1": 3700.00,
@@ -141,7 +143,11 @@ def load_user_config_from_cloud(email: str) -> dict:
         doc_ref = db.collection("user_configs").document(email)
         doc = doc_ref.get()
         if doc.exists:
-            return doc.to_dict()
+            cfg = doc.to_dict()
+            for item in cfg.get("watchlist", []):
+                if "trade_type" not in item:
+                    item["trade_type"] = "DELIVERY"
+            return cfg
         else:
             doc_ref.set(DEFAULT_CONFIG)
             return DEFAULT_CONFIG
@@ -166,6 +172,39 @@ def save_config(config_dict):
 if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
 
+# --- NSE TRADE EXPENSE & BREAK-EVEN ENGINE (DELIVERY & INTRADAY) ---
+def compute_trade_expenses(qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"):
+    if qty <= 0 or buy_price <= 0:
+        return 0.0, buy_price
+
+    buy_turnover = qty * buy_price
+    sell_turnover = qty * max(sell_price, buy_price)
+    total_turnover = buy_turnover + sell_turnover
+
+    trade_type = trade_type.upper().strip()
+
+    if trade_type == "INTRADAY":
+        brokerage = min(20.0, buy_turnover * 0.0003) + min(20.0, sell_turnover * 0.0003)
+        stt = sell_turnover * 0.00025
+        stamp_duty = buy_turnover * 0.00003
+        exchange_fee = total_turnover * 0.0000307
+        sebi_fee = total_turnover * 0.000001
+        dp_charge = 0.00
+        gst = 0.18 * (brokerage + exchange_fee + sebi_fee)
+    else:
+        brokerage = 0.0
+        stt = (buy_turnover * 0.001) + (sell_turnover * 0.001)
+        stamp_duty = buy_turnover * 0.00015
+        exchange_fee = total_turnover * 0.0000307
+        sebi_fee = total_turnover * 0.000001
+        dp_charge = 13.50
+        gst = 0.18 * (brokerage + exchange_fee + sebi_fee + dp_charge)
+
+    total_expenses = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + dp_charge + gst
+    breakeven_price = buy_price + (total_expenses / qty)
+
+    return total_expenses, breakeven_price
+
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
     if val is None or not isinstance(val, (int, float)):
@@ -183,7 +222,7 @@ def format_compact_inr(val):
     else:
         return f"{sign}{sym}{abs_val:,.2f}"
 
-# --- INJECT DYNAMIC CSS (OPTIMIZED FOR 1080P VIEWPORTS) ---
+# --- INJECT DYNAMIC CSS ---
 st.markdown(
     f"""
     <style>
@@ -206,6 +245,10 @@ st.markdown(
 
         div[data-testid="stVerticalBlock"] {{
             gap: 0.25rem !important;
+        }}
+
+        div[data-testid="stExpanderDetails"] {{
+            padding: 0rem 0.2rem 0.2rem 0.2rem !important;
         }}
 
         .stat-card {{
@@ -254,10 +297,6 @@ st.markdown(
             font-size: {0.9 * fs_chart:.2f}rem;
             font-weight: 700;
             white-space: nowrap;
-        }}
-        /* Strip internal container padding from st.expander */
-        div[data-testid="stExpanderDetails"] {{
-            padding: 0rem 0.2rem 0.2rem 0.2rem !important;
         }}
     </style>
 """,
@@ -343,7 +382,7 @@ def fetch_market_indices():
             results[name] = {"val": 0.0, "chg": 0.0, "pct": 0.0}
     return results
 
-# --- MODAL POPUP DIALOG WITH AUTO-REFRESH PAUSE LOGIC ---
+# --- MODAL POPUP DIALOG WITH TRADE TYPE TOGGLE ---
 @st.dialog("🛠️ Watchlist & Script Sequence Manager", width="large")
 def open_watchlist_manager():
     st.session_state.is_modal_open = True
@@ -393,8 +432,8 @@ def open_watchlist_manager():
         st.info("Watchlist is empty. Add scripts below!")
     else:
         for i, item in enumerate(watchlist):
-            c_grab, c_sym, c_buy, c_qty, c_risk, c_act, c_del = st.columns(
-                [0.8, 1.8, 1.3, 1.0, 2.5, 1.2, 0.8]
+            c_grab, c_sym, c_type, c_buy, c_qty, c_risk, c_act, c_del = st.columns(
+                [0.6, 1.6, 1.2, 1.1, 0.9, 2.3, 1.0, 0.6]
             )
 
             is_editing = st.session_state.editing_row_idx == i
@@ -412,9 +451,14 @@ def open_watchlist_manager():
                     save_config(st.session_state.config)
                     st.rerun()
 
+            curr_trade_type = item.get("trade_type", "DELIVERY")
+
             if is_editing:
                 edit_sym = c_sym.text_input(
                     "Symbol", value=item["symbol"], key=f"edit_sym_{i}"
+                )
+                edit_type = c_type.selectbox(
+                    "Type", options=["DELIVERY", "INTRADAY"], index=0 if curr_trade_type == "DELIVERY" else 1, key=f"edit_ttype_{i}"
                 )
                 edit_buy = c_buy.number_input(
                     "Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}"
@@ -463,6 +507,7 @@ def open_watchlist_manager():
                     if b_save.button("💾", key=f"save_btn_{i}"):
                         watchlist[i] = {
                             "symbol": edit_sym.upper().strip(),
+                            "trade_type": edit_type,
                             "avg_buy_price": float(edit_buy),
                             "quantity": int(edit_qty),
                             "stop_loss": float(edit_sl),
@@ -486,6 +531,10 @@ def open_watchlist_manager():
                 lbl_t1 = APP_CONFIG["LABELS"]["T1"]
                 lbl_t2 = APP_CONFIG["LABELS"]["T2"]
                 c_sym.markdown(f"**{i+1}. {sym_clean}**")
+                
+                type_badge = "📦 Delivery" if curr_trade_type == "DELIVERY" else "⚡ Intraday"
+                c_type.markdown(f"<small><b>{type_badge}</b></small>", unsafe_allow_html=True)
+                
                 c_buy.markdown(f"₹{item['avg_buy_price']:,.2f}")
                 c_qty.markdown(f"{item['quantity']}")
                 c_risk.markdown(
@@ -528,10 +577,11 @@ def open_watchlist_manager():
 
     with st.form("add_script_form"):
         add_sym = st.text_input("Ticker Symbol", value=selected_symbol)
-        ac1, ac2, ac3 = st.columns(3)
-        add_buy = ac1.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0)
-        add_qty = ac2.number_input("Quantity", min_value=1, value=10, step=1)
-        add_mltp = ac3.number_input("Manual LTP (₹)", min_value=0.0, step=1.0)
+        ac1, ac2, ac3, ac4 = st.columns(4)
+        add_type = ac1.selectbox("Trade Type", options=["DELIVERY", "INTRADAY"], index=0)
+        add_buy = ac2.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0)
+        add_qty = ac3.number_input("Quantity", min_value=1, value=10, step=1)
+        add_mltp = ac4.number_input("Manual LTP (₹)", min_value=0.0, step=1.0)
 
         rc1, rc2, rc3, rc4 = st.columns(4)
         add_sl = rc1.number_input(
@@ -551,6 +601,7 @@ def open_watchlist_manager():
         if submitted and add_sym:
             new_item = {
                 "symbol": add_sym.upper().strip(),
+                "trade_type": add_type,
                 "avg_buy_price": float(add_buy),
                 "quantity": int(add_qty),
                 "stop_loss": float(add_sl),
@@ -561,7 +612,7 @@ def open_watchlist_manager():
             }
             st.session_state.config["watchlist"].append(new_item)
             save_config(st.session_state.config)
-            st.success(f"Added {add_sym} to watchlist!")
+            st.success(f"Added {add_sym} ({add_type}) to watchlist!")
             st.session_state.is_modal_open = False
             st.rerun()
 
@@ -725,6 +776,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
         sym = item["symbol"]
         buy_price = float(item["avg_buy_price"])
         qty = int(item["quantity"])
+        trade_type = item.get("trade_type", "DELIVERY")
         sl = float(item.get("stop_loss", 0.0))
         tsl = float(item.get("trailing_sl", 0.0))
         t1 = float(item.get("target_1", 0.0))
@@ -756,13 +808,20 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 status = "🔴 Stale"
                 fetch_errors.append(f"**{sym}**: {err}")
 
+        # Compute Expenses and Break-Even
+        total_exp, breakeven_price = compute_trade_expenses(qty, buy_price, ltp, trade_type)
+
         # Day's Gain Calculation
         day_pnl = (ltp - prev_close) * qty if prev_close > 0 else 0.0
         day_pnl_pct = ((ltp - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
 
         current = ltp * qty
-        pnl = current - invested
-        pnl_pct = (pnl / invested * 100) if invested > 0 else 0.0
+        gross_pnl = current - invested
+        gross_pnl_pct = (gross_pnl / invested * 100) if invested > 0 else 0.0
+
+        net_pnl = gross_pnl - total_exp
+        net_pnl_pct = (net_pnl / invested * 100) if invested > 0 else 0.0
+
         weight_pct = (invested / total_invested * 100) if total_invested > 0 else 0.0
 
         sl_pnl = (sl - buy_price) * qty if sl > 0 else 0.0
@@ -781,14 +840,19 @@ def fetch_portfolio_data(watchlist, use_manual_override):
             {
                 "Symbol": sym.replace(".NS", ""),
                 "RawSymbol": sym,
+                "Type": trade_type,
                 "Status": status,
                 "Qty": qty,
                 "Avg Buy (₹)": buy_price,
                 "LTP (₹)": ltp,
+                "Break-Even (₹)": round(breakeven_price, 2),
+                "Expenses (₹)": round(total_exp, 2),
                 "Day's Gain/Loss": round(day_pnl, 2),
                 "Day's Gain/Loss (%)": round(day_pnl_pct, 2),
-                "P&L (₹)": round(pnl, 2),
-                "P&L (%)": round(pnl_pct, 2),
+                "P&L (₹)": round(gross_pnl, 2),
+                "P&L (%)": round(gross_pnl_pct, 2),
+                "Net P&L (₹)": round(net_pnl, 2),
+                "Net P&L (%)": round(net_pnl_pct, 2),
                 lbl_sl: sl,
                 f"{lbl_sl} P&L (₹)": f"₹{sl_pnl:,.2f} ({sl_pnl_pct:+.1f}%)",
                 lbl_tsl: tsl,
@@ -801,7 +865,9 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Current Val (₹)": round(current, 2),
                 "Weight (%)": round(weight_pct, 2),
                 "Raw_DayPnL": day_pnl,
-                "Raw_PnL": pnl,
+                "Raw_PnL": gross_pnl,
+                "Raw_NetPnL": net_pnl,
+                "Raw_Expenses": total_exp,
                 "Raw_Invested": invested,
                 "Raw_Current": current,
                 "df_10d": df_10d,
@@ -822,15 +888,18 @@ elif market_is_open:
 else:
     st.info(f"🔴 **Market Status**: {market_reason} | Background auto-refresh paused until market opens.")
 
-# --- TOP STATS & MARKET INDICES HEADER ROW ---
+# --- TOP STATS & MARKET INDICES HEADER ROW (SYNCHRONIZED NET NUMBERS) ---
 tot_invested = df["Raw_Invested"].sum()
 tot_current = df["Raw_Current"].sum()
-tot_pnl = tot_current - tot_invested
-tot_pnl_pct = (tot_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
+tot_expenses = df["Raw_Expenses"].sum()
+
+tot_gross_pnl = tot_current - tot_invested
+tot_net_pnl = df["Raw_NetPnL"].sum()
+tot_net_pnl_pct = (tot_net_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
 
 border_color = (
     APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-    if tot_pnl >= 0
+    if tot_net_pnl >= 0
     else APP_CONFIG["COLORS"]["LOSS_RED"]
 )
 
@@ -844,7 +913,7 @@ with top_col1:
         f"""
         <div class="stat-card" style="border-color: {border_color};">
             <div class="stat-label">Net P&L</div>
-            <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_pnl)}</div>
+            <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_net_pnl)}</div>
         </div>
     """,
         unsafe_allow_html=True,
@@ -852,8 +921,8 @@ with top_col1:
     s2.markdown(
         f"""
         <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Return</div>
-            <div class="stat-value" style="color:{border_color};">{tot_pnl_pct:+.2f}%</div>
+            <div class="stat-label">Net Return</div>
+            <div class="stat-value" style="color:{border_color};">{tot_net_pnl_pct:+.2f}%</div>
         </div>
     """,
         unsafe_allow_html=True,
@@ -899,29 +968,38 @@ with top_col2:
             unsafe_allow_html=True,
         )
 
-# --- CONSTRUCT & RENDER MAIN TABLE (WITH COLLAPSIBLE CONTAINER) ---
-winning_df = df[df["Raw_PnL"] > 0]
-losing_df = df[df["Raw_PnL"] < 0]
+# --- CONSTRUCT & RENDER MAIN TABLE WITH ACCURATE AGGREGATES ---
+winning_df = df[df["Raw_NetPnL"] > 0]
+losing_df = df[df["Raw_NetPnL"] < 0]
 
 lbl_sl = APP_CONFIG["LABELS"]["SL"]
 lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
 lbl_t1 = APP_CONFIG["LABELS"]["T1"]
 lbl_t2 = APP_CONFIG["LABELS"]["T2"]
 
+win_invested = winning_df["Raw_Invested"].sum()
+win_gross = winning_df["Raw_PnL"].sum()
+win_net = winning_df["Raw_NetPnL"].sum()
+
+loss_invested = losing_df["Raw_Invested"].sum()
+loss_gross = losing_df["Raw_PnL"].sum()
+loss_net = losing_df["Raw_NetPnL"].sum()
+
 totals_rows = [
     {
         "Symbol": APP_CONFIG["LABELS"]["SUMMARY_WIN"],
+        "Type": "-",
         "Status": "Summary",
         "Qty": winning_df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
+        "Break-Even (₹)": None,
+        "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
         "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
-        "P&L (₹)": winning_df["Raw_PnL"].sum(),
-        "P&L (%)": (
-            winning_df["Raw_PnL"].sum() / winning_df["Raw_Invested"].sum() * 100
-        )
-        if winning_df["Raw_Invested"].sum() > 0
-        else 0,
+        "P&L (₹)": win_gross,
+        "P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
+        "Net P&L (₹)": win_net,
+        "Net P&L (%)": (win_net / win_invested * 100) if win_invested > 0 else 0.0,
         lbl_sl: None,
         f"{lbl_sl} P&L (₹)": "-",
         lbl_tsl: None,
@@ -930,28 +1008,24 @@ totals_rows = [
         f"{lbl_t1} P&L (₹)": "-",
         lbl_t2: None,
         f"{lbl_t2} P&L (₹)": "-",
-        "Invested (₹)": winning_df["Raw_Invested"].sum(),
+        "Invested (₹)": win_invested,
         "Current Val (₹)": winning_df["Raw_Current"].sum(),
-        "Weight (%)": round(
-            (winning_df["Raw_Invested"].sum() / tot_invested * 100)
-            if tot_invested > 0
-            else 0,
-            2,
-        ),
+        "Weight (%)": round((win_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
     },
     {
         "Symbol": APP_CONFIG["LABELS"]["SUMMARY_LOSS"],
+        "Type": "-",
         "Status": "Summary",
         "Qty": losing_df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
+        "Break-Even (₹)": None,
+        "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
         "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
-        "P&L (₹)": losing_df["Raw_PnL"].sum(),
-        "P&L (%)": (
-            losing_df["Raw_PnL"].sum() / losing_df["Raw_Invested"].sum() * 100
-        )
-        if losing_df["Raw_Invested"].sum() > 0
-        else 0,
+        "P&L (₹)": loss_gross,
+        "P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
+        "Net P&L (₹)": loss_net,
+        "Net P&L (%)": (loss_net / loss_invested * 100) if loss_invested > 0 else 0.0,
         lbl_sl: None,
         f"{lbl_sl} P&L (₹)": "-",
         lbl_tsl: None,
@@ -960,24 +1034,24 @@ totals_rows = [
         f"{lbl_t1} P&L (₹)": "-",
         lbl_t2: None,
         f"{lbl_t2} P&L (₹)": "-",
-        "Invested (₹)": losing_df["Raw_Invested"].sum(),
+        "Invested (₹)": loss_invested,
         "Current Val (₹)": losing_df["Raw_Current"].sum(),
-        "Weight (%)": round(
-            (losing_df["Raw_Invested"].sum() / tot_invested * 100)
-            if tot_invested > 0
-            else 0,
-            2,
-        ),
+        "Weight (%)": round((loss_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
     },
     {
         "Symbol": APP_CONFIG["LABELS"]["SUMMARY_NET"],
+        "Type": "-",
         "Status": "Summary",
         "Qty": df["Qty"].sum(),
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
+        "Break-Even (₹)": None,
+        "Expenses (₹)": tot_expenses,
         "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
-        "P&L (₹)": tot_pnl,
-        "P&L (%)": tot_pnl_pct,
+        "P&L (₹)": tot_gross_pnl,
+        "P&L (%)": (tot_gross_pnl / tot_invested * 100) if tot_invested > 0 else 0.0,
+        "Net P&L (₹)": tot_net_pnl,
+        "Net P&L (%)": tot_net_pnl_pct,
         lbl_sl: None,
         f"{lbl_sl} P&L (₹)": "-",
         lbl_tsl: None,
@@ -998,25 +1072,33 @@ if st.session_state.show_table:
     if st.session_state.table_view_preset == "🔍 Main Focus View":
         display_cols = [
             "Symbol",
+            "Type",
             "Status",
             "Qty",
             "Avg Buy (₹)",
             "LTP (₹)",
+            "Break-Even (₹)",
+            "Expenses (₹)",
             "Day's Gain/Loss",
-            "P&L (₹)",
-            "P&L (%)",
+            "Net P&L (₹)",
+            "Net P&L (%)",
             lbl_sl,
         ]
     else:
         display_cols = [
             "Symbol",
+            "Type",
             "Status",
             "Qty",
             "Avg Buy (₹)",
             "LTP (₹)",
+            "Break-Even (₹)",
+            "Expenses (₹)",
             "Day's Gain/Loss",
             "P&L (₹)",
             "P&L (%)",
+            "Net P&L (₹)",
+            "Net P&L (%)",
             lbl_sl,
             f"{lbl_sl} P&L (₹)",
             lbl_tsl,
@@ -1035,6 +1117,8 @@ if st.session_state.show_table:
     currency_cols = [
         "Avg Buy (₹)",
         "LTP (₹)",
+        "Break-Even (₹)",
+        "Expenses (₹)",
         lbl_sl,
         lbl_tsl,
         lbl_t1,
@@ -1077,8 +1161,11 @@ if st.session_state.show_table:
             val = row[col]
             cell_style = ""
 
+            if col == "Type" and val in ["DELIVERY", "INTRADAY"]:
+                val = f"<span style='font-size:0.8em; padding:2px 5px; border-radius:3px; background-color:#1E293B; color:#A1A1AA;'>{val}</span>"
+
             # Format Day's Gain/Loss Column
-            if col == "Day's Gain/Loss" and isinstance(val, (int, float)):
+            elif col == "Day's Gain/Loss" and isinstance(val, (int, float)):
                 color = (
                     APP_CONFIG["COLORS"]["PROFIT_GREEN"]
                     if val >= 0
@@ -1093,15 +1180,15 @@ if st.session_state.show_table:
                     val = f"{sign}₹{val:,.2f}"
                 cell_style = f"color: {color}; font-weight: bold;"
 
-            # Format P&L Column
-            elif col in ["P&L (₹)", "P&L (%)"] and isinstance(val, (int, float)):
+            # Format Gross & Net P&L Columns
+            elif col in ["P&L (₹)", "P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
                 color = (
                     APP_CONFIG["COLORS"]["PROFIT_GREEN"]
                     if val >= 0
                     else APP_CONFIG["COLORS"]["LOSS_RED"]
                 )
                 sign = "+" if val >= 0 else ""
-                val = f"{sign}₹{val:,.2f}" if col == "P&L (₹)" else f"{val:+.2f}%"
+                val = f"{sign}₹{val:,.2f}" if "₹" in col else f"{val:+.2f}%"
                 cell_style = f"color: {color}; font-weight: bold;"
             elif val is None:
                 val = "-"
@@ -1117,7 +1204,7 @@ if st.session_state.show_table:
         .tv-portfolio-table {{
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 0.4rem;
+            margin-bottom: 0.2rem;
             background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
             color: #FFFFFF;
             font-family: Source Sans Pro, sans-serif;
@@ -1127,14 +1214,14 @@ if st.session_state.show_table:
             color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
             font-size: {tbl_header_rem}rem !important;
             font-weight: 800;
-            padding: {padding_v}rem 0.5rem;
+            padding: {padding_v}rem 0.5rem !important;
             text-align: left;
             border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
             white-space: nowrap;
         }}
         .tv-portfolio-table td {{
             font-size: {tbl_font_rem}rem !important;
-            padding: {padding_v}rem 0.5rem;
+            padding: {padding_v}rem 0.5rem !important;
             border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
             white-space: nowrap;
         }}
@@ -1381,7 +1468,7 @@ def create_candlestick_chart(row):
 
     fig.update_layout(
         title=dict(
-            text=f"<b>{row['Symbol']}</b> ({row['Status']}) | Live LTP: <span style='color:{APP_CONFIG['COLORS']['LTP_RED']};'><b>₹{row['LTP (₹)']}</b></span>",
+            text=f"<b>{row['Symbol']}</b> [{row['Type']}] ({row['Status']}) | Live LTP: <span style='color:{APP_CONFIG['COLORS']['LTP_RED']};'><b>₹{row['LTP (₹)']}</b></span>",
             font=dict(size=c_title_size),
         ),
         xaxis=dict(
