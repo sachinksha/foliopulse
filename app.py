@@ -255,6 +255,10 @@ st.markdown(
             font-weight: 700;
             white-space: nowrap;
         }}
+        /* Strip internal container padding from st.expander */
+        div[data-testid="stExpanderDetails"] {{
+            padding: 0rem 0.2rem 0.2rem 0.2rem !important;
+        }}
     </style>
 """,
     unsafe_allow_html=True,
