@@ -1072,17 +1072,13 @@ if st.session_state.show_table:
     if st.session_state.table_view_preset == "🔍 Main Focus View":
         display_cols = [
             "Symbol",
-            "Type",
             "Status",
             "Qty",
             "Avg Buy (₹)",
             "LTP (₹)",
-            "Break-Even (₹)",
-            "Expenses (₹)",
             "Day's Gain/Loss",
             "Net P&L (₹)",
             "Net P&L (%)",
-            lbl_sl,
         ]
     else:
         display_cols = [
