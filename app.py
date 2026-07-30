@@ -752,25 +752,64 @@ if (
 ):
     st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 
-# --- FETCH 10-DAY HISTORY & PREVIOUS CLOSE ENGINE ---
+# --- ENHANCED 10-DAY HISTORY FETCH WITH AUTOMATIC GAP-FILL FALLBACK ---
 def get_10day_history(sym):
     ticker_obj = yf.Ticker(sym)
-    df_daily = ticker_obj.history(period="15d", interval="1d")
+    
+    # 1. Fetch daily bars
+    df_daily = ticker_obj.history(period="20d", interval="1d")
 
     if df_daily.empty:
-        raise ValueError("Empty history dataframe")
+        raise ValueError(f"No historical data returned for {sym}")
 
     df_daily.index = df_daily.index.strftime("%Y-%m-%d")
-    df_10d = df_daily.tail(10)
 
+    # 2. Extract fast info for LTP and previous close
     try:
         fast_info = ticker_obj.fast_info
         ltp = round(float(fast_info.last_price), 2)
         prev_close = float(fast_info.previous_close)
     except Exception:
-        ltp = round(float(df_10d["Close"].iloc[-1]), 2)
-        prev_close = float(df_10d["Close"].iloc[-2]) if len(df_10d) > 1 else ltp
+        ltp = round(float(df_daily["Close"].iloc[-1]), 2)
+        prev_close = float(df_daily["Close"].iloc[-2]) if len(df_daily) > 1 else ltp
 
+    # 3. Check if yesterday/today's date is missing from daily index
+    india_tz = pytz.timezone("Asia/Kolkata")
+    now = datetime.now(india_tz)
+    
+    # Target date to verify (yesterday or today if post-market)
+    target_dt = now.date() if now.hour >= 16 else (now.date() - pd.Timedelta(days=1))
+    
+    # Skip weekend verification
+    if target_dt.weekday() < 5:
+        target_str = target_dt.strftime("%Y-%m-%d")
+        
+        # If Yahoo daily API skipped yesterday's bar, fetch 5m intraday data to rebuild it
+        if target_str not in df_daily.index:
+            try:
+                df_intraday = ticker_obj.history(period="5d", interval="5m")
+                if not df_intraday.empty:
+                    df_intraday.index = pd.to_datetime(df_intraday.index).tz_convert(india_tz)
+                    df_target_day = df_intraday[df_intraday.index.strftime("%Y-%m-%d") == target_str]
+                    
+                    if not df_target_day.empty:
+                        # Construct missing daily candle from intraday ticks
+                        missing_bar = pd.DataFrame(
+                            {
+                                "Open": df_target_day["Open"].iloc[0],
+                                "High": df_target_day["High"].max(),
+                                "Low": df_target_day["Low"].min(),
+                                "Close": df_target_day["Close"].iloc[-1],
+                                "Volume": df_target_day["Volume"].sum(),
+                            },
+                            index=[target_str],
+                        )
+                        df_daily = pd.concat([df_daily, missing_bar])
+                        df_daily = df_daily[~df_daily.index.duplicated(keep="last")].sort_index()
+            except Exception as patch_err:
+                logging.warning(f"Failed to patch missing daily bar for {sym}: {patch_err}")
+
+    df_10d = df_daily.tail(10)
     return ltp, prev_close, df_10d
 
 def fetch_portfolio_data(watchlist, use_manual_override):
