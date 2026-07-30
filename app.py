@@ -173,7 +173,7 @@ def save_config(config_dict):
 if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
 
-# --- EXACT ZERODHA EXPENSE & BREAK-EVEN CALCULATOR ENGINE ---
+# --- ZERODHA EXPENSE ENGINE ---
 def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"):
     if qty <= 0 or buy_price <= 0:
         return {
@@ -184,7 +184,7 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
         }
 
     buy_turnover = qty * buy_price
-    sell_turnover = qty * max(sell_price, buy_price)
+    sell_turnover = qty * sell_price
     total_turnover = buy_turnover + sell_turnover
     trade_type = trade_type.upper().strip()
 
@@ -219,6 +219,7 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
         "total_expenses": round(total_expenses, 2),
         "breakeven_price": round(breakeven_price, 2)
     }
+
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
     if val is None or not isinstance(val, (int, float)):
@@ -744,7 +745,7 @@ chart_cols_per_row = st.sidebar.select_slider(
 )
 auto_zoom_risk_range = st.sidebar.toggle("🔍 Auto-Zoom Range", value=True)
 
-# PAUSE AUTO-REFRESH IF MODAL IS OPEN TO PREVENT FORM DEREGISTRATION
+# PAUSE AUTO-REFRESH IF MODAL IS OPEN
 if (
     not manual_override_active
     and market_is_open
@@ -752,11 +753,9 @@ if (
 ):
     st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 
-# --- ENHANCED 10-DAY HISTORY FETCH WITH AUTOMATIC GAP-FILL FALLBACK ---
+# --- FETCH 10-DAY HISTORY & PREVIOUS CLOSE ENGINE WITH GAP-FILL ---
 def get_10day_history(sym):
     ticker_obj = yf.Ticker(sym)
-    
-    # 1. Fetch daily bars
     df_daily = ticker_obj.history(period="20d", interval="1d")
 
     if df_daily.empty:
@@ -764,7 +763,6 @@ def get_10day_history(sym):
 
     df_daily.index = df_daily.index.strftime("%Y-%m-%d")
 
-    # 2. Extract fast info for LTP and previous close
     try:
         fast_info = ticker_obj.fast_info
         ltp = round(float(fast_info.last_price), 2)
@@ -773,18 +771,12 @@ def get_10day_history(sym):
         ltp = round(float(df_daily["Close"].iloc[-1]), 2)
         prev_close = float(df_daily["Close"].iloc[-2]) if len(df_daily) > 1 else ltp
 
-    # 3. Check if yesterday/today's date is missing from daily index
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
-    
-    # Target date to verify (yesterday or today if post-market)
     target_dt = now.date() if now.hour >= 16 else (now.date() - pd.Timedelta(days=1))
     
-    # Skip weekend verification
     if target_dt.weekday() < 5:
         target_str = target_dt.strftime("%Y-%m-%d")
-        
-        # If Yahoo daily API skipped yesterday's bar, fetch 5m intraday data to rebuild it
         if target_str not in df_daily.index:
             try:
                 df_intraday = ticker_obj.history(period="5d", interval="5m")
@@ -793,7 +785,6 @@ def get_10day_history(sym):
                     df_target_day = df_intraday[df_intraday.index.strftime("%Y-%m-%d") == target_str]
                     
                     if not df_target_day.empty:
-                        # Construct missing daily candle from intraday ticks
                         missing_bar = pd.DataFrame(
                             {
                                 "Open": df_target_day["Open"].iloc[0],
@@ -861,14 +852,9 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 status = "🔴 Stale"
                 fetch_errors.append(f"**{sym}**: {err}")
 
-        # Compute Expenses, Break-Even, and Detailed Charges via Dictionary
         exp_data = compute_trade_expenses_detailed(qty, buy_price, ltp, trade_type)
-        contract_note_exp = exp_data["contract_note_charges"]
-        dp_exp = exp_data["dp_charges"]
         total_exp = exp_data["total_expenses"]
-        breakeven_price = exp_data["breakeven_price"]
 
-        # Day's Gain Calculation
         day_pnl = (ltp - prev_close) * qty if prev_close > 0 else 0.0
         day_pnl_pct = ((ltp - prev_close) / prev_close * 100) if prev_close > 0 else 0.0
 
@@ -881,18 +867,6 @@ def fetch_portfolio_data(watchlist, use_manual_override):
 
         weight_pct = (invested / total_invested * 100) if total_invested > 0 else 0.0
 
-        sl_pnl = (sl - buy_price) * qty if sl > 0 else 0.0
-        sl_pnl_pct = ((sl - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
-
-        tsl_pnl = (tsl - buy_price) * qty if tsl > 0 else 0.0
-        tsl_pnl_pct = ((tsl - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
-
-        t1_pnl = (t1 - buy_price) * qty if t1 > 0 else 0.0
-        t1_pnl_pct = ((t1 - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
-
-        t2_pnl = (t2 - buy_price) * qty if t2 > 0 else 0.0
-        t2_pnl_pct = ((t2 - buy_price) / buy_price * 100) if buy_price > 0 else 0.0
-
         rows.append(
             {
                 "Symbol": sym.replace(".NS", ""),
@@ -901,34 +875,25 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Status": status,
                 "Qty": qty,
                 "Avg Buy (₹)": buy_price,
-                "LTP (₹)": ltp,
-                "Break-Even (₹)": breakeven_price,
-                "Contract Note Charges (₹)": contract_note_exp,
-                "DP Charges (₹)": dp_exp,
-                "Expenses (₹)": total_exp,
-                "Day's Gain/Loss": round(day_pnl, 2),
-                "Day's Gain/Loss (%)": round(day_pnl_pct, 2),
-                "P&L (₹)": round(gross_pnl, 2),
-                "P&L (%)": round(gross_pnl_pct, 2),
-                "Net P&L (₹)": round(net_pnl, 2),
-                "Net P&L (%)": round(net_pnl_pct, 2),
-                lbl_sl: sl,
-                f"{lbl_sl} P&L (₹)": f"₹{sl_pnl:,.2f} ({sl_pnl_pct:+.1f}%)",
-                lbl_tsl: tsl,
-                f"{lbl_tsl} P&L (₹)": f"₹{tsl_pnl:,.2f} ({tsl_pnl_pct:+.1f}%)",
-                lbl_t1: t1,
-                f"{lbl_t1} P&L (₹)": f"₹{t1_pnl:,.2f} ({t1_pnl_pct:+.1f}%)",
-                lbl_t2: t2,
-                f"{lbl_t2} P&L (₹)": f"₹{t2_pnl:,.2f} ({t2_pnl_pct:+.1f}%)",
                 "Invested (₹)": round(invested, 2),
+                "LTP (₹)": ltp,
                 "Current Val (₹)": round(current, 2),
                 "Weight (%)": round(weight_pct, 2),
+                lbl_sl: sl,
+                lbl_tsl: tsl,
+                lbl_t1: t1,
+                lbl_t2: t2,
+                "Day's Gain/Loss": round(day_pnl, 2),
+                "Day's Gain/Loss (%)": round(day_pnl_pct, 2),
+                "Expenses (₹)": round(total_exp, 2),
+                "Gross P&L (₹)": round(gross_pnl, 2),
+                "Gross P&L (%)": round(gross_pnl_pct, 2),
+                "Net P&L (₹)": round(net_pnl, 2),
+                "Net P&L (%)": round(net_pnl_pct, 2),
                 "Raw_DayPnL": day_pnl,
                 "Raw_PnL": gross_pnl,
                 "Raw_NetPnL": net_pnl,
                 "Raw_Expenses": total_exp,
-                "Raw_ContractNoteExp": contract_note_exp,
-                "Raw_DPExp": dp_exp,
                 "Raw_Invested": invested,
                 "Raw_Current": current,
                 "df_10d": df_10d,
@@ -949,7 +914,7 @@ elif market_is_open:
 else:
     st.info(f"🔴 **Market Status**: {market_reason} | Background auto-refresh paused until market opens.")
 
-# --- TOP STATS & MARKET INDICES HEADER ROW (SYNCHRONIZED NET NUMBERS) ---
+# --- TOP STATS & MARKET INDICES HEADER ROW ---
 tot_invested = df["Raw_Invested"].sum()
 tot_current = df["Raw_Current"].sum()
 tot_expenses = df["Raw_Expenses"].sum()
@@ -1029,7 +994,7 @@ with top_col2:
             unsafe_allow_html=True,
         )
 
-# --- CONSTRUCT & RENDER MAIN TABLE WITH ACCURATE AGGREGATES ---
+# --- CONSTRUCT & RENDER TABLES (REORGANIZED & SIMPLIFIED) ---
 winning_df = df[df["Raw_NetPnL"] > 0]
 losing_df = df[df["Raw_NetPnL"] < 0]
 
@@ -1053,27 +1018,20 @@ totals_rows = [
         "Status": "Summary",
         "Qty": winning_df["Qty"].sum(),
         "Avg Buy (₹)": None,
-        "LTP (₹)": None,
-        "Break-Even (₹)": None,
-        "Contract Note Charges (₹)": winning_df["Raw_ContractNoteExp"].sum(),
-        "DP Charges (₹)": winning_df["Raw_DPExp"].sum(),
-        "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
-        "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
-        "P&L (₹)": win_gross,
-        "P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
-        "Net P&L (₹)": win_net,
-        "Net P&L (%)": (win_net / win_invested * 100) if win_invested > 0 else 0.0,
-        lbl_sl: None,
-        f"{lbl_sl} P&L (₹)": "-",
-        lbl_tsl: None,
-        f"{lbl_tsl} P&L (₹)": "-",
-        lbl_t1: None,
-        f"{lbl_t1} P&L (₹)": "-",
-        lbl_t2: None,
-        f"{lbl_t2} P&L (₹)": "-",
         "Invested (₹)": win_invested,
+        "LTP (₹)": None,
         "Current Val (₹)": winning_df["Raw_Current"].sum(),
         "Weight (%)": round((win_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
+        lbl_sl: None,
+        lbl_tsl: None,
+        lbl_t1: None,
+        lbl_t2: None,
+        "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
+        "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
+        "Gross P&L (₹)": win_gross,
+        "Gross P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
+        "Net P&L (₹)": win_net,
+        "Net P&L (%)": (win_net / win_invested * 100) if win_invested > 0 else 0.0,
     },
     {
         "Symbol": APP_CONFIG["LABELS"]["SUMMARY_LOSS"],
@@ -1081,27 +1039,20 @@ totals_rows = [
         "Status": "Summary",
         "Qty": losing_df["Qty"].sum(),
         "Avg Buy (₹)": None,
-        "LTP (₹)": None,
-        "Break-Even (₹)": None,
-        "Contract Note Charges (₹)": losing_df["Raw_ContractNoteExp"].sum(),
-        "DP Charges (₹)": losing_df["Raw_DPExp"].sum(),
-        "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
-        "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
-        "P&L (₹)": loss_gross,
-        "P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
-        "Net P&L (₹)": loss_net,
-        "Net P&L (%)": (loss_net / loss_invested * 100) if loss_invested > 0 else 0.0,
-        lbl_sl: None,
-        f"{lbl_sl} P&L (₹)": "-",
-        lbl_tsl: None,
-        f"{lbl_tsl} P&L (₹)": "-",
-        lbl_t1: None,
-        f"{lbl_t1} P&L (₹)": "-",
-        lbl_t2: None,
-        f"{lbl_t2} P&L (₹)": "-",
         "Invested (₹)": loss_invested,
+        "LTP (₹)": None,
         "Current Val (₹)": losing_df["Raw_Current"].sum(),
         "Weight (%)": round((loss_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
+        lbl_sl: None,
+        lbl_tsl: None,
+        lbl_t1: None,
+        lbl_t2: None,
+        "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
+        "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
+        "Gross P&L (₹)": loss_gross,
+        "Gross P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
+        "Net P&L (₹)": loss_net,
+        "Net P&L (%)": (loss_net / loss_invested * 100) if loss_invested > 0 else 0.0,
     },
     {
         "Symbol": APP_CONFIG["LABELS"]["SUMMARY_NET"],
@@ -1109,27 +1060,20 @@ totals_rows = [
         "Status": "Summary",
         "Qty": df["Qty"].sum(),
         "Avg Buy (₹)": None,
-        "LTP (₹)": None,
-        "Break-Even (₹)": None,
-        "Contract Note Charges (₹)": df["Raw_ContractNoteExp"].sum(),
-        "DP Charges (₹)": df["Raw_DPExp"].sum(),
-        "Expenses (₹)": tot_expenses,
-        "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
-        "P&L (₹)": tot_gross_pnl,
-        "P&L (%)": (tot_gross_pnl / tot_invested * 100) if tot_invested > 0 else 0.0,
-        "Net P&L (₹)": tot_net_pnl,
-        "Net P&L (%)": tot_net_pnl_pct,
-        lbl_sl: None,
-        f"{lbl_sl} P&L (₹)": "-",
-        lbl_tsl: None,
-        f"{lbl_tsl} P&L (₹)": "-",
-        lbl_t1: None,
-        f"{lbl_t1} P&L (₹)": "-",
-        lbl_t2: None,
-        f"{lbl_t2} P&L (₹)": "-",
         "Invested (₹)": tot_invested,
+        "LTP (₹)": None,
         "Current Val (₹)": tot_current,
         "Weight (%)": 100.0,
+        lbl_sl: None,
+        lbl_tsl: None,
+        lbl_t1: None,
+        lbl_t2: None,
+        "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
+        "Expenses (₹)": tot_expenses,
+        "Gross P&L (₹)": tot_gross_pnl,
+        "Gross P&L (%)": (tot_gross_pnl / tot_invested * 100) if tot_invested > 0 else 0.0,
+        "Net P&L (₹)": tot_net_pnl,
+        "Net P&L (%)": tot_net_pnl_pct,
     },
 ]
 
@@ -1139,7 +1083,6 @@ if st.session_state.show_table:
     if st.session_state.table_view_preset == "🔍 Main Focus View":
         display_cols = [
             "Symbol",
-            "Status",
             "Qty",
             "Avg Buy (₹)",
             "LTP (₹)",
@@ -1148,50 +1091,40 @@ if st.session_state.show_table:
             "Net P&L (%)",
         ]
     else:
+        # Grouped Sequentially: User Inputs -> Market Snapshot -> Risk Parameters -> Net Results
         display_cols = [
             "Symbol",
             "Type",
-            "Status",
             "Qty",
             "Avg Buy (₹)",
-            "LTP (₹)",
-            "Break-Even (₹)",
-            "Contract Note Charges (₹)",
-            "DP Charges (₹)",
-            "Expenses (₹)",
-            "Day's Gain/Loss",
-            "P&L (₹)",
-            "P&L (%)",
-            "Net P&L (₹)",
-            "Net P&L (%)",
-            lbl_sl,
-            f"{lbl_sl} P&L (₹)",
-            lbl_tsl,
-            f"{lbl_tsl} P&L (₹)",
-            lbl_t1,
-            f"{lbl_t1} P&L (₹)",
-            lbl_t2,
-            f"{lbl_t2} P&L (₹)",
             "Invested (₹)",
+            "LTP (₹)",
             "Current Val (₹)",
             "Weight (%)",
+            lbl_sl,
+            lbl_tsl,
+            lbl_t1,
+            lbl_t2,
+            "Day's Gain/Loss",
+            "Expenses (₹)",
+            "Gross P&L (₹)",
+            "Gross P&L (%)",
+            "Net P&L (₹)",
+            "Net P&L (%)",
         ]
 
     render_df = df_table[display_cols].copy()
 
     currency_cols = [
         "Avg Buy (₹)",
+        "Invested (₹)",
         "LTP (₹)",
-        "Break-Even (₹)",
-        "Contract Note Charges (₹)",
-        "DP Charges (₹)",
-        "Expenses (₹)",
+        "Current Val (₹)",
         lbl_sl,
         lbl_tsl,
         lbl_t1,
         lbl_t2,
-        "Invested (₹)",
-        "Current Val (₹)",
+        "Expenses (₹)",
     ]
     for col in currency_cols:
         if col in render_df.columns:
@@ -1217,7 +1150,7 @@ if st.session_state.show_table:
     html_rows.append("<tbody>")
     for idx, row in render_df.iterrows():
         row_cells = []
-        is_summary = row.get("Status") == "Summary"
+        is_summary = df_table.loc[idx, "Status"] == "Summary" if "Status" in df_table.columns else False
         row_bg = (
             f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
             if is_summary
@@ -1231,7 +1164,6 @@ if st.session_state.show_table:
             if col == "Type" and val in ["DELIVERY", "INTRADAY"]:
                 val = f"<span style='font-size:0.8em; padding:2px 5px; border-radius:3px; background-color:#1E293B; color:#A1A1AA;'>{val}</span>"
 
-            # Format Day's Gain/Loss Column
             elif col == "Day's Gain/Loss" and isinstance(val, (int, float)):
                 color = (
                     APP_CONFIG["COLORS"]["PROFIT_GREEN"]
@@ -1241,14 +1173,13 @@ if st.session_state.show_table:
                 sign = "+" if val >= 0 else ""
                 
                 if not is_summary:
-                    pct = df.loc[idx, "Day's Gain/Loss (%)"]
+                    pct = df_table.loc[idx, "Day's Gain/Loss (%)"]
                     val = f"{sign}₹{val:,.2f} ({sign}{pct:.2f}%)"
                 else:
                     val = f"{sign}₹{val:,.2f}"
                 cell_style = f"color: {color}; font-weight: bold;"
 
-            # Format Gross & Net P&L Columns
-            elif col in ["P&L (₹)", "P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
+            elif col in ["Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
                 color = (
                     APP_CONFIG["COLORS"]["PROFIT_GREEN"]
                     if val >= 0
@@ -1306,18 +1237,22 @@ if st.session_state.show_table:
     with st.expander("📋 Main Portfolio Table", expanded=True):
         st.markdown(full_html_table, unsafe_allow_html=True)
 
-# --- SIDEBAR JOURNAL EXPORT ---
+# --- STREAMLINED EOD JOURNAL EXPORT ---
 st.sidebar.divider()
 st.sidebar.subheader("📥 Journal Export")
 
-if st.session_state.show_table:
-    journal_df = df_table[display_cols].copy()
-else:
-    journal_df = df.copy()
+export_cols = [
+    "Symbol", "Type", "Qty", "Avg Buy (₹)", "Invested (₹)",
+    "LTP (₹)", "Current Val (₹)", "Weight (%)",
+    lbl_sl, lbl_tsl, lbl_t1, lbl_t2,
+    "Expenses (₹)", "Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"
+]
 
-journal_df["Journal Comments"] = ""
-
+journal_df = df[export_cols].copy()
 today_stamp = datetime.now().strftime("%Y-%m-%d")
+journal_df.insert(0, "Date", today_stamp)
+journal_df["Comments"] = ""
+
 csv_data = journal_df.to_csv(index=False).encode("utf-8")
 
 st.sidebar.download_button(
@@ -1328,7 +1263,7 @@ st.sidebar.download_button(
     use_container_width=True,
 )
 
-# --- 10-DAY CANDLESTICK CHART ENGINE WITH NET CALCULATIONS & STAGGERED CALLOUTS ---
+# --- 10-DAY CANDLESTICK CHART ENGINE ---
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
 
@@ -1367,7 +1302,6 @@ def create_candlestick_chart(row):
 
     invested = buy_val * qty
 
-    # Compute Live LTP Net P&L
     ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type)
     ltp_net_pnl = ((ltp_val * qty) - invested) - ltp_exp_details["total_expenses"]
     ltp_net_pct = (ltp_net_pnl / invested * 100) if invested > 0 else 0.0
@@ -1437,7 +1371,6 @@ def create_candlestick_chart(row):
             continue
         horizontal_levels.append(item)
 
-    # --- HORIZONTAL ANCHOR POSITIONS FOR HIGH LEGIBILITY ---
     right_align_date = dates[min(len(dates) - 2, len(dates) - 1)]
     left_align_date = dates[max(0, len(dates) // 3)]
     ltp_left_align_date = dates[max(0, len(dates) // 4)]
@@ -1446,7 +1379,6 @@ def create_candlestick_chart(row):
     c_badge_size = int(11 * fs_chart)
     c_axis_size = int(11 * fs_chart)
 
-    # 1. Render Level Lines
     for item in horizontal_levels:
         fig.add_trace(
             go.Scatter(
@@ -1459,7 +1391,6 @@ def create_candlestick_chart(row):
             )
         )
 
-    # 2. Render Non-LTP Annotations (Targets / SLs)
     for item in horizontal_levels:
         if item["name"] in [lbl_buy, lbl_ltp]:
             continue
@@ -1507,7 +1438,6 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    # 3. BUY Entry Badge
     if buy_val > 0 and qty > 0:
         fig.add_annotation(
             x=left_align_date,
@@ -1535,7 +1465,6 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    # 4. LIVE LTP Badge (Shifted left for optimal visibility)
     ltp_item = next((item for item in horizontal_levels if item["name"] == lbl_ltp), None)
     if ltp_item:
         badge_text_ltp = (
