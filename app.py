@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 import logging
+import math
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -172,38 +173,66 @@ def save_config(config_dict):
 if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
 
-# --- NSE TRADE EXPENSE & BREAK-EVEN ENGINE (DELIVERY & INTRADAY) ---
-def compute_trade_expenses(qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"):
+# --- EXACT ZERODHA EXPENSE & BREAK-EVEN CALCULATOR ENGINE ---
+def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"):
     if qty <= 0 or buy_price <= 0:
-        return 0.0, buy_price
+        return {
+            "contract_note_charges": 0.0,
+            "dp_charges": 0.0,
+            "total_expenses": 0.0,
+            "breakeven_price": buy_price
+        }
 
     buy_turnover = qty * buy_price
     sell_turnover = qty * max(sell_price, buy_price)
     total_turnover = buy_turnover + sell_turnover
-
     trade_type = trade_type.upper().strip()
 
     if trade_type == "INTRADAY":
+        # 1. Brokerage: Min(₹20, 0.03%) per order
         brokerage = min(20.0, buy_turnover * 0.0003) + min(20.0, sell_turnover * 0.0003)
-        stt = sell_turnover * 0.00025
+        # 2. STT: 0.025% on Sell side turnover (rounded)
+        stt = math.floor(sell_turnover * 0.00025 + 0.5)
+        # 3. Stamp Duty: 0.003% on Buy side turnover
         stamp_duty = buy_turnover * 0.00003
+        # 4. Exchange Txn Fee (NSE): 0.00307% (includes IPFT)
         exchange_fee = total_turnover * 0.0000307
+        # 5. SEBI Charges: ₹10 / crore (0.0001%)
         sebi_fee = total_turnover * 0.000001
-        dp_charge = 0.00
-        gst = 0.18 * (brokerage + exchange_fee + sebi_fee)
-    else:
-        brokerage = 0.0
-        stt = (buy_turnover * 0.001) + (sell_turnover * 0.001)
-        stamp_duty = buy_turnover * 0.00015
-        exchange_fee = total_turnover * 0.0000307
-        sebi_fee = total_turnover * 0.000001
-        dp_charge = 13.50
-        gst = 0.18 * (brokerage + exchange_fee + sebi_fee + dp_charge)
+        # 6. GST: 18% on (Brokerage + Exchange Fee + SEBI Fee)
+        gst = (brokerage + exchange_fee + sebi_fee) * 0.18
 
-    total_expenses = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + dp_charge + gst
+        contract_note_levies = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + gst
+        dp_charges = 0.00
+
+    else:
+        # Equity Delivery Rules (Zerodha)
+        # 1. Brokerage: ₹0 (Contract Note minimum ₹0.01)[cite: 1, 2]
+        brokerage = 0.01
+        # 2. STT: 0.1% on BOTH Buy & Sell sides (rounded)[cite: 1, 2, 3]
+        stt = math.floor((buy_turnover * 0.001) + (sell_turnover * 0.001) + 0.5)
+        # 3. Stamp Duty: 0.015% on Buy side turnover[cite: 3]
+        stamp_duty = buy_turnover * 0.00015
+        # 4. Exchange Txn Fee (NSE): 0.00307% (includes IPFT)[cite: 1, 2, 3]
+        exchange_fee = total_turnover * 0.0000307
+        # 5. SEBI Charges: ₹10 / crore (0.0001%)[cite: 1, 2, 3]
+        sebi_fee = total_turnover * 0.000001
+        # 6. GST on Contract Note: 18% on (Brokerage + Exchange Fee + SEBI Fee)[cite: 1, 2, 3]
+        gst = (brokerage + exchange_fee + sebi_fee) * 0.18
+
+        contract_note_levies = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + gst
+        # 7. DP Charge: Flat ₹13.00 + 18% GST = ₹15.34 per scrip on sell day
+        dp_charges = 13.00 * 1.18
+
+    total_expenses = contract_note_levies + dp_charges
     breakeven_price = buy_price + (total_expenses / qty)
 
-    return total_expenses, breakeven_price
+    return {
+        "contract_note_charges": round(contract_note_levies, 2),
+        "dp_charges": round(dp_charges, 2),
+        "total_expenses": round(total_expenses, 2),
+        "breakeven_price": round(breakeven_price, 2)
+    }
 
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
@@ -808,8 +837,12 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 status = "🔴 Stale"
                 fetch_errors.append(f"**{sym}**: {err}")
 
-        # Compute Expenses and Break-Even
-        total_exp, breakeven_price = compute_trade_expenses(qty, buy_price, ltp, trade_type)
+        # Compute Expenses, Break-Even, and Detailed Charges via Dictionary
+        exp_data = compute_trade_expenses_detailed(qty, buy_price, ltp, trade_type)
+        contract_note_exp = exp_data["contract_note_charges"]
+        dp_exp = exp_data["dp_charges"]
+        total_exp = exp_data["total_expenses"]
+        breakeven_price = exp_data["breakeven_price"]
 
         # Day's Gain Calculation
         day_pnl = (ltp - prev_close) * qty if prev_close > 0 else 0.0
@@ -845,8 +878,10 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Qty": qty,
                 "Avg Buy (₹)": buy_price,
                 "LTP (₹)": ltp,
-                "Break-Even (₹)": round(breakeven_price, 2),
-                "Expenses (₹)": round(total_exp, 2),
+                "Break-Even (₹)": breakeven_price,
+                "Contract Note Charges (₹)": contract_note_exp,
+                "DP Charges (₹)": dp_exp,
+                "Expenses (₹)": total_exp,
                 "Day's Gain/Loss": round(day_pnl, 2),
                 "Day's Gain/Loss (%)": round(day_pnl_pct, 2),
                 "P&L (₹)": round(gross_pnl, 2),
@@ -868,6 +903,8 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Raw_PnL": gross_pnl,
                 "Raw_NetPnL": net_pnl,
                 "Raw_Expenses": total_exp,
+                "Raw_ContractNoteExp": contract_note_exp,
+                "Raw_DPExp": dp_exp,
                 "Raw_Invested": invested,
                 "Raw_Current": current,
                 "df_10d": df_10d,
@@ -994,6 +1031,8 @@ totals_rows = [
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
         "Break-Even (₹)": None,
+        "Contract Note Charges (₹)": winning_df["Raw_ContractNoteExp"].sum(),
+        "DP Charges (₹)": winning_df["Raw_DPExp"].sum(),
         "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
         "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
         "P&L (₹)": win_gross,
@@ -1020,6 +1059,8 @@ totals_rows = [
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
         "Break-Even (₹)": None,
+        "Contract Note Charges (₹)": losing_df["Raw_ContractNoteExp"].sum(),
+        "DP Charges (₹)": losing_df["Raw_DPExp"].sum(),
         "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
         "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
         "P&L (₹)": loss_gross,
@@ -1046,6 +1087,8 @@ totals_rows = [
         "Avg Buy (₹)": None,
         "LTP (₹)": None,
         "Break-Even (₹)": None,
+        "Contract Note Charges (₹)": df["Raw_ContractNoteExp"].sum(),
+        "DP Charges (₹)": df["Raw_DPExp"].sum(),
         "Expenses (₹)": tot_expenses,
         "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
         "P&L (₹)": tot_gross_pnl,
@@ -1089,6 +1132,8 @@ if st.session_state.show_table:
             "Avg Buy (₹)",
             "LTP (₹)",
             "Break-Even (₹)",
+            "Contract Note Charges (₹)",
+            "DP Charges (₹)",
             "Expenses (₹)",
             "Day's Gain/Loss",
             "P&L (₹)",
@@ -1114,6 +1159,8 @@ if st.session_state.show_table:
         "Avg Buy (₹)",
         "LTP (₹)",
         "Break-Even (₹)",
+        "Contract Note Charges (₹)",
+        "DP Charges (₹)",
         "Expenses (₹)",
         lbl_sl,
         lbl_tsl,
