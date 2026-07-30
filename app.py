@@ -1328,7 +1328,7 @@ st.sidebar.download_button(
     use_container_width=True,
 )
 
-# --- 10-DAY CANDLESTICK CHART ENGINE WITH CORRECT Z-INDEX STACKING ---
+# --- 10-DAY CANDLESTICK CHART ENGINE WITH NET CALCULATIONS & STAGGERED CALLOUTS ---
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
 
@@ -1367,7 +1367,7 @@ def create_candlestick_chart(row):
 
     invested = buy_val * qty
 
-    # Calculate Live LTP Net P&L
+    # Compute Live LTP Net P&L
     ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type)
     ltp_net_pnl = ((ltp_val * qty) - invested) - ltp_exp_details["total_expenses"]
     ltp_net_pct = (ltp_net_pnl / invested * 100) if invested > 0 else 0.0
@@ -1418,7 +1418,6 @@ def create_candlestick_chart(row):
             "dash": "dash",
             "width": 1.5,
         },
-        # LTP kept last so it draws over earlier lines
         {
             "name": lbl_ltp,
             "val": ltp_val,
@@ -1438,15 +1437,16 @@ def create_candlestick_chart(row):
             continue
         horizontal_levels.append(item)
 
-    mid_idx = len(dates) // 2
-    align_date = dates[mid_idx]
-    ltp_align_date = dates[min(mid_idx + 2, len(dates) - 1)]
+    # --- HORIZONTAL ANCHOR POSITIONS FOR HIGH LEGIBILITY ---
+    right_align_date = dates[min(len(dates) - 2, len(dates) - 1)]
+    left_align_date = dates[max(0, len(dates) // 3)]
+    ltp_left_align_date = dates[max(0, len(dates) // 4)]
 
     c_title_size = int(14 * fs_chart)
     c_badge_size = int(11 * fs_chart)
     c_axis_size = int(11 * fs_chart)
 
-    # 1. Draw level lines sequentially (LTP rendered last for top trace visual position)
+    # 1. Render Level Lines
     for item in horizontal_levels:
         fig.add_trace(
             go.Scatter(
@@ -1459,7 +1459,7 @@ def create_candlestick_chart(row):
             )
         )
 
-    # 2. Draw non-LTP level annotations
+    # 2. Render Non-LTP Annotations (Targets / SLs)
     for item in horizontal_levels:
         if item["name"] in [lbl_buy, lbl_ltp]:
             continue
@@ -1482,12 +1482,12 @@ def create_candlestick_chart(row):
         )
 
         fig.add_annotation(
-            x=align_date,
+            x=right_align_date,
             y=item["val"],
             text=badge_text,
             showarrow=False,
             font=dict(color=item["color"], size=c_badge_size),
-            bgcolor="#FFFFFF",
+            bgcolor="#161B22",
             bordercolor=item["color"],
             borderwidth=1.5,
             borderpad=3,
@@ -1507,15 +1507,15 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    # 3. BUY Entry Qty Badge
+    # 3. BUY Entry Badge
     if buy_val > 0 and qty > 0:
         fig.add_annotation(
-            x=align_date,
+            x=left_align_date,
             y=buy_val,
             text=f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>{qty} Qty @ ₹{buy_val:,.2f} ({trade_type})</b></span> ",
             showarrow=False,
             font=dict(size=int(11 * fs_chart)),
-            bgcolor="#FFFFFF",
+            bgcolor="#161B22",
             bordercolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
             borderwidth=1.5,
             borderpad=3,
@@ -1523,7 +1523,19 @@ def create_candlestick_chart(row):
             xanchor="center",
         )
 
-    # 4. Draw LTP Callout Badge LAST to force top z-index in layout annotations
+        fig.add_annotation(
+            xref="paper",
+            x=1.002,
+            y=buy_val,
+            text=f" <b>{buy_val:,.2f}</b> ",
+            showarrow=False,
+            font=dict(color="#FFFFFF", size=c_badge_size),
+            bgcolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
+            xanchor="left",
+            yanchor="middle",
+        )
+
+    # 4. LIVE LTP Badge (Shifted left for optimal visibility)
     ltp_item = next((item for item in horizontal_levels if item["name"] == lbl_ltp), None)
     if ltp_item:
         badge_text_ltp = (
@@ -1532,12 +1544,12 @@ def create_candlestick_chart(row):
         )
 
         fig.add_annotation(
-            x=ltp_align_date,
+            x=ltp_left_align_date,
             y=ltp_item["val"],
             text=badge_text_ltp,
             showarrow=False,
             font=dict(color=APP_CONFIG["COLORS"]["LTP_RED"], size=c_badge_size + 1),
-            bgcolor="#FFFFFF",
+            bgcolor="#161B22",
             bordercolor=APP_CONFIG["COLORS"]["LTP_RED"],
             borderwidth=2.0,
             borderpad=4,
