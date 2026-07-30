@@ -189,39 +189,25 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
     trade_type = trade_type.upper().strip()
 
     if trade_type == "INTRADAY":
-        # 1. Brokerage: Min(₹20, 0.03%) per order
         brokerage = min(20.0, buy_turnover * 0.0003) + min(20.0, sell_turnover * 0.0003)
-        # 2. STT: 0.025% on Sell side turnover (rounded)
         stt = math.floor(sell_turnover * 0.00025 + 0.5)
-        # 3. Stamp Duty: 0.003% on Buy side turnover
         stamp_duty = buy_turnover * 0.00003
-        # 4. Exchange Txn Fee (NSE): 0.00307% (includes IPFT)
         exchange_fee = total_turnover * 0.0000307
-        # 5. SEBI Charges: ₹10 / crore (0.0001%)
         sebi_fee = total_turnover * 0.000001
-        # 6. GST: 18% on (Brokerage + Exchange Fee + SEBI Fee)
         gst = (brokerage + exchange_fee + sebi_fee) * 0.18
 
         contract_note_levies = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + gst
         dp_charges = 0.00
 
     else:
-        # Equity Delivery Rules (Zerodha)
-        # 1. Brokerage: ₹0 (Contract Note minimum ₹0.01)[cite: 1, 2]
         brokerage = 0.01
-        # 2. STT: 0.1% on BOTH Buy & Sell sides (rounded)[cite: 1, 2, 3]
         stt = math.floor((buy_turnover * 0.001) + (sell_turnover * 0.001) + 0.5)
-        # 3. Stamp Duty: 0.015% on Buy side turnover[cite: 3]
         stamp_duty = buy_turnover * 0.00015
-        # 4. Exchange Txn Fee (NSE): 0.00307% (includes IPFT)[cite: 1, 2, 3]
         exchange_fee = total_turnover * 0.0000307
-        # 5. SEBI Charges: ₹10 / crore (0.0001%)[cite: 1, 2, 3]
         sebi_fee = total_turnover * 0.000001
-        # 6. GST on Contract Note: 18% on (Brokerage + Exchange Fee + SEBI Fee)[cite: 1, 2, 3]
         gst = (brokerage + exchange_fee + sebi_fee) * 0.18
 
         contract_note_levies = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + gst
-        # 7. DP Charge: Flat ₹13.00 + 18% GST = ₹15.34 per scrip on sell day
         dp_charges = 13.00 * 1.18
 
     total_expenses = contract_note_levies + dp_charges
@@ -233,7 +219,6 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
         "total_expenses": round(total_expenses, 2),
         "breakeven_price": round(breakeven_price, 2)
     }
-
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
     if val is None or not isinstance(val, (int, float)):
@@ -1304,7 +1289,7 @@ st.sidebar.download_button(
     use_container_width=True,
 )
 
-# --- 10-DAY CANDLESTICK CHART ENGINE ---
+# --- 10-DAY CANDLESTICK CHART ENGINE WITH CORRECT Z-INDEX STACKING ---
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
 
@@ -1339,17 +1324,21 @@ def create_candlestick_chart(row):
     buy_val = float(row.get("Avg Buy (₹)", 0.0))
     ltp_val = float(row.get("LTP (₹)", 0.0))
     qty = int(row.get("Qty", 0))
+    trade_type = str(row.get("Type", "DELIVERY")).upper().strip()
 
     invested = buy_val * qty
-    current = ltp_val * qty
-    pnl = current - invested
-    pnl_pct = (pnl / invested * 100) if invested > 0 else 0.0
-    pnl_color = (
+
+    # Calculate Live LTP Net P&L
+    ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type)
+    ltp_net_pnl = ((ltp_val * qty) - invested) - ltp_exp_details["total_expenses"]
+    ltp_net_pct = (ltp_net_pnl / invested * 100) if invested > 0 else 0.0
+
+    ltp_net_color = (
         APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-        if pnl >= 0
+        if ltp_net_pnl >= 0
         else APP_CONFIG["COLORS"]["LOSS_RED"]
     )
-    pnl_sign = "+" if pnl >= 0 else ""
+    ltp_net_sign = "+" if ltp_net_pnl >= 0 else ""
 
     t1_val = float(row.get(lbl_t1, 0.0))
     t2_val = float(row.get(lbl_t2, 0.0))
@@ -1377,13 +1366,6 @@ def create_candlestick_chart(row):
             "width": 2.0,
         },
         {
-            "name": lbl_ltp,
-            "val": ltp_val,
-            "color": APP_CONFIG["COLORS"]["LTP_RED"],
-            "dash": "dot",
-            "width": 2.0,
-        },
-        {
             "name": lbl_t1,
             "val": t1_val,
             "color": APP_CONFIG["COLORS"]["PROFIT_GREEN"],
@@ -1396,6 +1378,14 @@ def create_candlestick_chart(row):
             "color": APP_CONFIG["COLORS"]["PROFIT_GREEN"],
             "dash": "dash",
             "width": 1.5,
+        },
+        # LTP kept last so it draws over earlier lines
+        {
+            "name": lbl_ltp,
+            "val": ltp_val,
+            "color": APP_CONFIG["COLORS"]["LTP_RED"],
+            "dash": "dot",
+            "width": 2.5,
         },
     ]
 
@@ -1417,6 +1407,7 @@ def create_candlestick_chart(row):
     c_badge_size = int(11 * fs_chart)
     c_axis_size = int(11 * fs_chart)
 
+    # 1. Draw level lines sequentially (LTP rendered last for top trace visual position)
     for item in horizontal_levels:
         fig.add_trace(
             go.Scatter(
@@ -1429,43 +1420,42 @@ def create_candlestick_chart(row):
             )
         )
 
-        if item["name"] != lbl_buy:
-            badge_x = ltp_align_date if item["name"] == lbl_ltp else align_date
-            badge_text = f" <b>{item['name']}</b> "
+    # 2. Draw non-LTP level annotations
+    for item in horizontal_levels:
+        if item["name"] in [lbl_buy, lbl_ltp]:
+            continue
 
-            if (
-                item["name"] in [lbl_sl, lbl_tsl, lbl_t1, lbl_t2]
-                and buy_val > 0
-                and qty > 0
-            ):
-                lvl_pnl = (item["val"] - buy_val) * qty
-                lvl_pct = ((item["val"] - buy_val) / buy_val) * 100
-                lvl_color = (
-                    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-                    if lvl_pnl >= 0
-                    else APP_CONFIG["COLORS"]["LOSS_RED"]
-                )
-                lvl_sign = "+" if lvl_pnl >= 0 else ""
-                badge_text = (
-                    f" <b>{item['name']}</b> | "
-                    f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{lvl_pnl:,.2f} ({lvl_pct:+.1f}%)</b></span> "
-                )
+        level_exp_details = compute_trade_expenses_detailed(qty, buy_val, item["val"], trade_type)
+        level_gross_pnl = (item["val"] - buy_val) * qty
+        level_net_pnl = level_gross_pnl - level_exp_details["total_expenses"]
+        level_net_pct = (level_net_pnl / invested * 100) if invested > 0 else 0.0
 
-            fig.add_annotation(
-                x=badge_x,
-                y=item["val"],
-                text=badge_text,
-                showarrow=False,
-                font=dict(color=item["color"], size=c_badge_size),
-                bgcolor="#FFFFFF",
-                bordercolor=item["color"],
-                borderwidth=1.5,
-                borderpad=3,
-                yanchor="middle",
-                xanchor="center",
-            )
+        lvl_color = (
+            APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+            if level_net_pnl >= 0
+            else APP_CONFIG["COLORS"]["LOSS_RED"]
+        )
+        lvl_sign = "+" if level_net_pnl >= 0 else ""
 
-        # Right Y-Axis Price Badge
+        badge_text = (
+            f" <b>{item['name']}</b> | "
+            f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{level_net_pnl:,.2f} ({level_net_pct:+.1f}%)</b></span> "
+        )
+
+        fig.add_annotation(
+            x=align_date,
+            y=item["val"],
+            text=badge_text,
+            showarrow=False,
+            font=dict(color=item["color"], size=c_badge_size),
+            bgcolor="#FFFFFF",
+            bordercolor=item["color"],
+            borderwidth=1.5,
+            borderpad=3,
+            yanchor="middle",
+            xanchor="center",
+        )
+
         fig.add_annotation(
             xref="paper",
             x=1.002,
@@ -1478,20 +1468,54 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    # BUY Entry P&L Badge
+    # 3. BUY Entry Qty Badge
     if buy_val > 0 and qty > 0:
         fig.add_annotation(
             x=align_date,
             y=buy_val,
-            text=f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>{qty}</b></span> | <span style='color:{pnl_color};'><b>{pnl_sign}₹{pnl:,.2f} ({pnl_pct:+.1f}%)</b></span> ",
+            text=f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>{qty} Qty @ ₹{buy_val:,.2f} ({trade_type})</b></span> ",
             showarrow=False,
-            font=dict(size=int(12 * fs_chart)),
+            font=dict(size=int(11 * fs_chart)),
             bgcolor="#FFFFFF",
             bordercolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
             borderwidth=1.5,
             borderpad=3,
             yanchor="middle",
             xanchor="center",
+        )
+
+    # 4. Draw LTP Callout Badge LAST to force top z-index in layout annotations
+    ltp_item = next((item for item in horizontal_levels if item["name"] == lbl_ltp), None)
+    if ltp_item:
+        badge_text_ltp = (
+            f" <b>{lbl_ltp}</b> | "
+            f"<span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{ltp_net_pnl:,.2f} ({ltp_net_pct:+.1f}%)</b></span> "
+        )
+
+        fig.add_annotation(
+            x=ltp_align_date,
+            y=ltp_item["val"],
+            text=badge_text_ltp,
+            showarrow=False,
+            font=dict(color=APP_CONFIG["COLORS"]["LTP_RED"], size=c_badge_size + 1),
+            bgcolor="#FFFFFF",
+            bordercolor=APP_CONFIG["COLORS"]["LTP_RED"],
+            borderwidth=2.0,
+            borderpad=4,
+            yanchor="middle",
+            xanchor="center",
+        )
+
+        fig.add_annotation(
+            xref="paper",
+            x=1.002,
+            y=ltp_item["val"],
+            text=f" <b>{ltp_item['val']:,.2f}</b> ",
+            showarrow=False,
+            font=dict(color="#FFFFFF", size=c_badge_size + 1),
+            bgcolor=APP_CONFIG["COLORS"]["LTP_RED"],
+            xanchor="left",
+            yanchor="middle",
         )
 
     if auto_zoom_risk_range and sl_val > 0 and row.get(lbl_t2, 0) > 0:
@@ -1511,7 +1535,7 @@ def create_candlestick_chart(row):
 
     fig.update_layout(
         title=dict(
-            text=f"<b>{row['Symbol']}</b> [{row['Type']}] ({row['Status']}) | Live LTP: <span style='color:{APP_CONFIG['COLORS']['LTP_RED']};'><b>₹{row['LTP (₹)']}</b></span>",
+            text=f"<b>{row['Symbol']}</b> [{trade_type}] ({row['Status']}) | P&L: <span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{ltp_net_pnl:,.2f} ({ltp_net_pct:+.1f}%)</b></span>",
             font=dict(size=c_title_size),
         ),
         xaxis=dict(
