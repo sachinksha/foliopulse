@@ -114,15 +114,15 @@ DEFAULT_CONFIG = {
     "refresh_seconds": 10,
     "watchlist": [
         {
-            "symbol": "M&MFIN.NS",
-            "avg_buy_price": 280.00,
-            "quantity": 100,
+            "symbol": "LT.NS",
+            "avg_buy_price": 2400.00,
+            "quantity": 10,
             "trade_type": "DELIVERY",
-            "stop_loss": 260.00,
-            "trailing_sl": 270.00,
-            "target_1": 310.00,
-            "target_2": 330.00,
-            "manual_ltp": 285.00,
+            "stop_loss": 2200.00,
+            "trailing_sl": 2200.00,
+            "target_1": 4800.00,
+            "target_2": 4800.00,
+            "manual_ltp": 3500.00,
         },
         {
             "symbol": "TITAN.NS",
@@ -131,9 +131,9 @@ DEFAULT_CONFIG = {
             "trade_type": "DELIVERY",
             "stop_loss": 3200.00,
             "trailing_sl": 3300.00,
-            "target_1": 3700.00,
-            "target_2": 3900.00,
-            "manual_ltp": 3450.00,
+            "target_1": 4800.00,
+            "target_2": 4900.00,
+            "manual_ltp": 3500.00,
         },
     ],
 }
@@ -804,17 +804,27 @@ def get_10day_history(sym):
     return ltp, prev_close, df_10d
 
 def fetch_portfolio_data(watchlist, use_manual_override):
-    rows = []
-    fetch_errors = []
-
-    total_invested = sum(
-        item["avg_buy_price"] * item["quantity"] for item in watchlist
-    )
-
     lbl_sl = APP_CONFIG["LABELS"]["SL"]
     lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
     lbl_t1 = APP_CONFIG["LABELS"]["T1"]
     lbl_t2 = APP_CONFIG["LABELS"]["T2"]
+
+    # Define standard schema columns
+    all_cols = [
+        "Symbol", "RawSymbol", "Type", "Status", "Qty", "Avg Buy (₹)", "Invested (₹)",
+        "LTP (₹)", "Current Val (₹)", "Weight (%)", lbl_sl, lbl_tsl, lbl_t1, lbl_t2,
+        "Day's Gain/Loss", "Day's Gain/Loss (%)", "Expenses (₹)", "Gross P&L (₹)",
+        "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)", "Raw_DayPnL", "Raw_PnL",
+        "Raw_NetPnL", "Raw_Expenses", "Raw_Invested", "Raw_Current", "df_10d"
+    ]
+
+    # Gracefully return empty dataframe with correct schema if watchlist is empty
+    if not watchlist:
+        return pd.DataFrame(columns=all_cols), []
+
+    rows = []
+    fetch_errors = []
+    total_invested = sum(item["avg_buy_price"] * item["quantity"] for item in watchlist)
 
     for idx, item in enumerate(watchlist):
         sym = item["symbol"]
@@ -903,8 +913,12 @@ def fetch_portfolio_data(watchlist, use_manual_override):
     return pd.DataFrame(rows), fetch_errors
 
 df, error_logs = fetch_portfolio_data(
-    st.session_state.config["watchlist"], manual_override_active
+    st.session_state.config.get("watchlist", []), manual_override_active
 )
+
+# --- EMPTY WATCHLIST FRIENDLY BANNER ---
+if df.empty:
+    st.info("📋 **Your Watchlist is currently empty.** Click **'⚙️ Manage Watchlist & Reorder'** in the sidebar to add your first stock!")
 
 # --- MARKET STATUS BANNER ---
 if manual_override_active:

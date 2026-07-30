@@ -1,103 +1,115 @@
-# 📈 FolioPulse — Live Portfolio & Risk Monitor
+# 📈 FolioPulse
 
-**FolioPulse** is a real-time portfolio tracking and visual risk management dashboard designed for Indian stock market traders and investors (NSE/BSE). Built with **Streamlit**, **Plotly**, and **yfinance**, it combines live P&L analytics with interactive 10-day candlestick charts that feature overlaid entry, stop-loss, and profit target levels.
+**FolioPulse** is a lightweight, real-time stock portfolio tracker and visual risk-monitoring engine built with Python, Streamlit, Plotly, and Firebase. Designed specifically for Indian stock market investors and swing traders, FolioPulse offers live intraday P&L calculations, automated Zerodha expense/tax deductions, and interactive candlestick charts layered with risk levels (Stop-Loss, Trailing-SL, Targets).
 
-App is live, go to - https://foliopulse.streamlit.app/
 ---
 
 ## ✨ Key Features
 
-* **💼 Live P&L & Portfolio Analytics:** Real-time tracking of invested capital, current market value, individual & net P&L ($\text{₹}$ and $\%$), asset weights, and profit summaries.
-* **📊 TradingView-Style 10-Day Candlestick Charts:** Native OHLC daily candlestick charts for every stock in your watchlist with zero clipped borders.
-* **🎯 Visualized Risk & Target Levels:**
-* **Buy Price (`BUY`):** Floating badge displaying live position quantity and active P&L ($\text{₹}$ and $\%$).
-* **Targets (`TARGET 1` / `TARGET 2`):** Projected profit target lines with potential P&L calculations ($\text{₹}$ and $\%$) if hit.
-* **Stop Losses (`SL` / `TSL`):** Color-coded risk bounds displaying maximum potential loss ($\text{₹}$ and $\%$). Auto-deduplicates if SL and Trailing SL are identical.
-* **Live Price (`LTP`):** High-visibility red reference line with a right Y-axis price tag. Features **relative horizontal offset** so the LTP label never gets hidden under adjacent stop-loss or target badges.
+* **⚡ Real-Time Price Engine & Gap-Fill:**
+  * Live quote polling via `yfinance` with fast market status checking for Indian exchanges (NSE/BSE).
+  * Automatic intraday gap-fill engine (5m tick aggregate) that seamlessly patches missing yesterday/today daily bars for high-cap stocks experiencing Yahoo Finance sync lag.
 
+* **🎯 Interactive 10-Day Candlestick Risk Engine:**
+  * Clean Plotly candlestick charts with overlaid Horizontal Risk Levels (**Stop-Loss, Trailing-SL, Buy Price, Target 1, Target 2, and Live LTP**).
+  * **Net-Based Badge Callouts:** All callout badges compute exact **Net P&L** after deducting all broker levies, STT, and DP charges.
+  * **Staggered Callout Placement:** Staggers LTP callout badges to the left and Target/SL badges to the right to eliminate visual overlap during price convergence.
+  * **Highest Z-Index LTP Visuals:** Live LTP price lines and axis chips are rendered on top of the visual stack.
 
-* **🛠️ Modal Watchlist & Script Manager (`@st.dialog`):**
-* **Single-Row Inline Editing:** Edit any script row in-place Excel-style via the **✏️ Pencil** icon, complete with **💾 Save** and **❌ Cancel** controls.
-* **⣿ Reorder Controls:** Move scripts up and down using grabber controls to customize both table sequence and chart layout order.
-* **🔍 Auto-Complete Search:** Powered by `yfinance.Search` to search and add stocks by ticker or company name with full exchange descriptions (e.g., `TATA CONSULTANCY SERV (TCS.NS) — NSE`).
-* **📥 Download / 📤 Upload Config:** Export your portfolio configuration as a JSON file or restore a saved `config.json` directly through the modal interface.
+* **📊 Dual Table Display Presets:**
+  * **`🔍 Main Focus View`:** A streamlined 7-column table designed for quick live scanning during market hours (`Symbol`, `Qty`, `Avg Buy`, `LTP`, `Day's Gain/Loss`, `Net P&L ₹`, `Net P&L %`).
+  * **`📋 Full Detail View`:** A structured, 18-column table logically grouped into *User Inputs* $\rightarrow$ *Market Snapshot* $\rightarrow$ *Risk Parameters* $\rightarrow$ *Net Results*.
 
+* **🧮 Precise Zerodha Expense Engine (`compute_trade_expenses_detailed`):**
+  * Supports both **`DELIVERY`** and **`INTRADAY`** equity trades.
+  * Factors in exact Zerodha brokerage, STT/CTT, Exchange Turnover Charges, Stamp Duty, SEBI turnover fees, 18% GST, and DP charges (₹15.34 per delivery sell transaction).
 
-* **🧠 Smart Auto-Pause & Manual Override:**
-* **Market-Hours Engine:** Auto-detects NSE trading hours (09:15 AM – 03:30 PM IST), weekends, and official trading holidays to pause API polling when markets are closed.
-* **Master Manual Override Toggle:** Switch ON manual override to completely pause API calls and force the dashboard to use user-fed prices. Auto-prefills inputs with the latest API prices when active.
+* **📥 Streamlined EOD Journal CSV Export:**
+  * One-click download of daily position logs mapped to a clean 18-column schema, omitting hypothetical projections and redundant fee breakdowns for direct appending into master sheets.
 
-
-
----
-
-## 🚀 Quick Start Guide
-
-### 1. Prerequisites
-
-Ensure you have Python **3.9+** installed.
-
-### 2. Installation
-
-Clone the repository and install the dependencies:
-
-```bash
-# Clone repository
-git clone https://github.com/your-username/foliopulse.git
-cd foliopulse
-
-# Install required dependencies
-pip install streamlit pandas plotly yfinance pytz streamlit-autorefresh
-
-```
-
-### 3. Launch the Application
-
-Run the Streamlit application locally:
-
-```bash
-streamlit run app.py
-
-```
-
-The app will open automatically in your browser at `http://localhost:8501`.
+* **☁️ Cloud Sync & Multi-User Auth:**
+  * Firebase Firestore integration for seamless watchlist sync across devices.
+  * Google OAuth login support for personalized portfolio state persistence.
+  * Interactive Watchlist & Sequence Manager modal with drag-and-drop order adjustments and JSON export/import.
 
 ---
 
-## ⚙️ Configuration File (`config.json`)
+## 🏗️ Architecture & Project Structure
 
-On the first run, FolioPulse automatically creates a `config.json` file in your root folder. You can edit your portfolio via the **Sidebar ⚙️ -> Manage Watchlist & Reorder** popup or edit `config.json` manually:
-
-```json
-{
-  "refresh_seconds": 10,
-  "watchlist": [
-    {
-      "symbol": "TITAN.NS",
-      "avg_buy_price": 3400.00,
-      "quantity": 15,
-      "stop_loss": 3200.00,
-      "trailing_sl": 3300.00,
-      "target_1": 3700.00,
-      "target_2": 3900.00,
-      "manual_ltp": 3450.00
-    }
-  ]
-}
-
+```text
+foliopulse/
+├── app.py                   # Main Streamlit application entry point
+├── requirements.txt         # Dependencies (streamlit, yfinance, plotly, firebase-admin, etc.)
+├── .streamlit/
+│   └── secrets.toml         # Firebase Admin SDK credentials & app configuration
+└── README.md                # Project documentation
 ```
 
-> **NSE Ticker Format:** Append `.NS` to symbols traded on the National Stock Exchange of India (e.g., `RELIANCE.NS`, `TCS.NS`, `INFY.NS`).
+## 🛠️ Installation & Setup
+1. Prerequisites
+   Python 3.10+
 
----
+   A Firebase Project with Firestore enabled.
 
-## 🎨 Chart Color & Level Reference
+2. Clone Repository & Install Dependencies
 
-| Reference Level | Line Style | Color Code | Badge Content & Logic |
-| --- | --- | --- | --- |
-| **Buy Price (`BUY`)** | Solid (`—`) | 🔵 `#1F77B4` | Live position Qty and P&L ($\text{₹}$ / $\%$) |
-| **Last Traded Price (`LTP`)** | Dotted (`····`) | 🔴 `#FF0000` | Right-offset label to prevent overlap |
-| **Stop Loss (`SL`)** | Dashed (`--`) | 🟠 `#FF872B` | Risk level with potential loss ($\text{₹}$ / $\%$) |
-| **Trailing SL (`TSL`)** | Dashed (`--`) | 🟡 `#77671F` | Trailing stop level (Hidden if equal to SL) |
-| **Target 1** | Dashed (`--`) | 🟢 `#00CC96` | Primary target with projected P&L ($\text{₹}$ / $\%$) |
-| **Target 2** | Dashed (`--`) | 🟢 `#00FF7F` | Secondary target with projected P&L ($\text{₹}$ / $\%$) |
+    ```bash
+    git clone [https://github.com/sachinksha/foliopulse.git](https://github.com/sachinksha/foliopulse.git)
+    cd foliopulse
+
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+    pip install -r requirements.txt
+    ```
+
+3. Configure Environment Secrets
+    Create a .streamlit/secrets.toml file in the root directory:
+
+    ```Ini, TOML
+    [firebase]
+    type = "service_account"
+    project_id = "your-firebase-project-id"
+    private_key_id = "your-private-key-id"
+    private_key = "-----BEGIN PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END PRIVATE KEY-----\n"
+    client_email = "firebase-adminsdk-xxx@your-project.iam.gserviceaccount.com"
+    client_id = "your-client-id"
+    auth_uri = "[https://accounts.google.com/o/oauth2/auth](https://accounts.google.com/o/oauth2/auth)"
+    token_uri = "[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)"
+    ```
+
+4. Run Application Locally
+
+    ```bash
+    streamlit run app.py
+    ```
+
+## 📊 Journal Master Sheet Schema & Excel Migration
+When exporting daily logs via the 📥 Export EOD Journal button, the CSV follows this standardized 18-column schema:
+| Col # | Column Name     | Source   | Description                           |
+|-------|-----------------|----------|---------------------------------------|
+| 1     | Date            | System   | Record Date (YYYY-MM-DD)              |
+| 2     | Symbol          | User     | Stock Ticker (e.g., TITAN)            |
+| 3     | Type            | User     | Trade Category (DELIVERY / INTRADAY)  |
+| 4     | Qty             | User     | Quantity                              |
+| 5     | Avg Buy (₹)     | User     | Average Entry Price                   |
+| 6     | Invested (₹)    | Computed | = Qty × Avg Buy                       |
+| 7     | LTP (₹)         | Market   | Live / Manual Price                   |
+| 8     | Current Val (₹) | Computed | = Qty × LTP                           |
+| 9     | Weight (%)      | Computed | = Invested / Total Portfolio Invested |
+| 10    | STOP-LOSS       | User     | Stop-Loss Trigger Price               |
+| 11    | TRAILING-SL     | User     | Trailing Stop-Loss Price              |
+| 12    | TARGET 1        | User     | First Target Price                    |
+| 13    | TARGET 2        | User     | Second Target Price                   |
+| 14    | Expenses (₹)    | Computed | Total Zerodha Levies + DP Charges     |
+| 15    | Gross P&L (₹)   | Computed | = Current Val - Invested              |
+| 16    | Gross P&L (%)   | Computed | = Gross P&L / Invested                |
+| 17    | Net P&L (₹)     | Computed | = Gross P&L - Expenses                |
+| 18    | Net P&L (%)     | Computed | = Net P&L / Invested                  |
+
+## Backfilling Old Records in Excel
+To calculate Expenses (Column N) for older historical entries in Excel (where F2 = Invested, H2 = Current Val, C2 = Type):
+
+```Excel
+=IF(LOWER(C2)="intraday", MIN(20, F2*0.0003)+MIN(20, H2*0.0003)+ROUND(H2*0.00025, 0)+(F2*0.00003)+((F2+H2)*0.0000307)+((F2+H2)*0.000001)+0.18*(MIN(20, F2*0.0003)+MIN(20, H2*0.0003)+((F2+H2)*0.0000307)+((F2+H2)*0.000001)), 0.01+ROUND((F2+H2)*0.001, 0)+(F2*0.00015)+((F2+H2)*0.0000307)+((F2+H2)*0.000001)+0.18*(0.01+((F2+H2)*0.0000307)+((F2+H2)*0.000001))+15.34)
+```
