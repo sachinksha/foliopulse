@@ -2,7 +2,6 @@ from datetime import datetime
 import json
 import logging
 import math
-import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 import pandas as pd
@@ -107,7 +106,7 @@ if "is_modal_open" not in st.session_state:
 if "show_table" not in st.session_state:
     st.session_state.show_table = True
 
-# --- NET P&L DETACH / DOCK QUERY PARAM HANDLER ---
+# --- NET P&L PIP DETACH / DOCK QUERY PARAM HANDLER ---
 if "is_pnl_detached" not in st.session_state:
     st.session_state.is_pnl_detached = False
 
@@ -198,7 +197,7 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
         }
 
     buy_turnover = qty * buy_price
-    sell_turnover = qty * sell_price  # Uses exact sell price for perfect STT alignment
+    sell_turnover = qty * sell_price
     total_turnover = buy_turnover + sell_turnover
     trade_type = trade_type.upper().strip()
 
@@ -411,13 +410,11 @@ def fetch_market_indices():
             results[name] = {"val": 0.0, "chg": 0.0, "pct": 0.0}
     return results
 
-# --- MODAL POPUP DIALOG WITH TRADE TYPE TOGGLE ---
+# --- MODAL POPUP DIALOG ---
 @st.dialog("🛠️ Watchlist & Script Sequence Manager", width="large")
 def open_watchlist_manager():
     st.session_state.is_modal_open = True
-    st.markdown(
-        "Upload/download configs, reorder scripts using grabbers, or edit rows inline."
-    )
+    st.markdown("Upload/download configs, reorder scripts using grabbers, or edit rows inline.")
 
     watchlist = st.session_state.config.get("watchlist", [])
 
@@ -483,53 +480,22 @@ def open_watchlist_manager():
             curr_trade_type = item.get("trade_type", "DELIVERY")
 
             if is_editing:
-                edit_sym = c_sym.text_input(
-                    "Symbol", value=item["symbol"], key=f"edit_sym_{i}"
-                )
+                edit_sym = c_sym.text_input("Symbol", value=item["symbol"], key=f"edit_sym_{i}")
                 edit_type = c_type.selectbox(
                     "Type", options=["DELIVERY", "INTRADAY"], index=0 if curr_trade_type == "DELIVERY" else 1, key=f"edit_ttype_{i}"
                 )
-                edit_buy = c_buy.number_input(
-                    "Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}"
-                )
-                edit_qty = c_qty.number_input(
-                    "Qty", value=int(item["quantity"]), step=1, key=f"edit_qty_{i}"
-                )
+                edit_buy = c_buy.number_input("Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}")
+                edit_qty = c_qty.number_input("Qty", value=int(item["quantity"]), step=1, key=f"edit_qty_{i}")
 
                 with c_risk:
                     r1, r2, r3 = st.columns(3)
-                    edit_sl = r1.number_input(
-                        APP_CONFIG["LABELS"]["SL"],
-                        value=float(item.get("stop_loss", 0.0)),
-                        step=1.0,
-                        key=f"edit_sl_{i}",
-                    )
-                    edit_tsl = r2.number_input(
-                        APP_CONFIG["LABELS"]["TSL"],
-                        value=float(item.get("trailing_sl", 0.0)),
-                        step=1.0,
-                        key=f"edit_tsl_{i}",
-                    )
-                    edit_manual_ltp = r3.number_input(
-                        "Manual LTP",
-                        value=float(item.get("manual_ltp", edit_buy)),
-                        step=1.0,
-                        key=f"edit_mltp_{i}",
-                    )
+                    edit_sl = r1.number_input(APP_CONFIG["LABELS"]["SL"], value=float(item.get("stop_loss", 0.0)), step=1.0, key=f"edit_sl_{i}")
+                    edit_tsl = r2.number_input(APP_CONFIG["LABELS"]["TSL"], value=float(item.get("trailing_sl", 0.0)), step=1.0, key=f"edit_tsl_{i}")
+                    edit_manual_ltp = r3.number_input("Manual LTP", value=float(item.get("manual_ltp", edit_buy)), step=1.0, key=f"edit_mltp_{i}")
 
                     r4, r5 = st.columns(2)
-                    edit_t1 = r4.number_input(
-                        APP_CONFIG["LABELS"]["T1"],
-                        value=float(item.get("target_1", 0.0)),
-                        step=1.0,
-                        key=f"edit_t1_{i}",
-                    )
-                    edit_t2 = r5.number_input(
-                        APP_CONFIG["LABELS"]["T2"],
-                        value=float(item.get("target_2", 0.0)),
-                        step=1.0,
-                        key=f"edit_t2_{i}",
-                    )
+                    edit_t1 = r4.number_input(APP_CONFIG["LABELS"]["T1"], value=float(item.get("target_1", 0.0)), step=1.0, key=f"edit_t1_{i}")
+                    edit_t2 = r5.number_input(APP_CONFIG["LABELS"]["T2"], value=float(item.get("target_2", 0.0)), step=1.0, key=f"edit_t2_{i}")
 
                 with c_act:
                     b_save, b_cancel = st.columns(2)
@@ -583,22 +549,16 @@ def open_watchlist_manager():
                 st.rerun()
 
     st.divider()
-    st.subheader("➕ Add New Script (Auto-Complete Search)")
+    st.subheader("➕ Add New Script")
 
-    search_query = st.text_input(
-        "Search Symbol or Company Name (e.g., Reliance, Tata, INFY, AAPL)",
-        key="script_search_input",
-    )
+    search_query = st.text_input("Search Symbol or Company Name", key="script_search_input")
 
     selected_symbol = ""
     if search_query:
         search_results = search_ticker_symbols(search_query)
         if search_results:
             options_dict = {item["display"]: item["symbol"] for item in search_results}
-            selected_display = st.selectbox(
-                "Select matching script from Yahoo Finance:",
-                options=list(options_dict.keys()),
-            )
+            selected_display = st.selectbox("Select matching script:", options=list(options_dict.keys()))
             selected_symbol = options_dict[selected_display]
         else:
             st.warning("No ticker results found. Enter ticker manually below.")
@@ -613,18 +573,10 @@ def open_watchlist_manager():
         add_mltp = ac4.number_input("Manual LTP (₹)", min_value=0.0, step=1.0)
 
         rc1, rc2, rc3, rc4 = st.columns(4)
-        add_sl = rc1.number_input(
-            f"{APP_CONFIG['LABELS']['SL']} (₹)", min_value=0.0, step=1.0
-        )
-        add_tsl = rc2.number_input(
-            f"{APP_CONFIG['LABELS']['TSL']} (₹)", min_value=0.0, step=1.0
-        )
-        add_t1 = rc3.number_input(
-            f"{APP_CONFIG['LABELS']['T1']} (₹)", min_value=0.0, step=1.0
-        )
-        add_t2 = rc4.number_input(
-            f"{APP_CONFIG['LABELS']['T2']} (₹)", min_value=0.0, step=1.0
-        )
+        add_sl = rc1.number_input(f"{APP_CONFIG['LABELS']['SL']} (₹)", min_value=0.0, step=1.0)
+        add_tsl = rc2.number_input(f"{APP_CONFIG['LABELS']['TSL']} (₹)", min_value=0.0, step=1.0)
+        add_t1 = rc3.number_input(f"{APP_CONFIG['LABELS']['T1']} (₹)", min_value=0.0, step=1.0)
+        add_t2 = rc4.number_input(f"{APP_CONFIG['LABELS']['T2']} (₹)", min_value=0.0, step=1.0)
 
         submitted = st.form_submit_button("➕ Add Script to Watchlist", type="primary")
         if submitted and add_sym:
@@ -653,9 +605,7 @@ if st.sidebar.button("🚪 Logout", use_container_width=True):
 
 st.sidebar.divider()
 
-if st.sidebar.button(
-    "⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True
-):
+if st.sidebar.button("⚙️ Manage Watchlist & Reorder", type="primary", use_container_width=True):
     open_watchlist_manager()
 
 st.sidebar.divider()
@@ -676,15 +626,13 @@ if st.session_state.show_table:
 
 st.sidebar.divider()
 
-# --- INDEPENDENT FONT CONTROLLERS ---
+# --- FONT CONTROLLERS ---
 if st.session_state.show_table:
     st.sidebar.subheader("📋 Main Table Font Size")
     t_col1, t_col2, t_col3 = st.sidebar.columns([1, 1, 1])
 
     if t_col1.button("🔍 A-", key="tbl_f_dn", use_container_width=True):
-        st.session_state.table_font_scale = max(
-            0.7, round(st.session_state.table_font_scale - 0.1, 2)
-        )
+        st.session_state.table_font_scale = max(0.7, round(st.session_state.table_font_scale - 0.1, 2))
         st.rerun()
 
     t_col2.markdown(
@@ -693,18 +641,14 @@ if st.session_state.show_table:
     )
 
     if t_col3.button("🔍 A+", key="tbl_f_up", use_container_width=True):
-        st.session_state.table_font_scale = min(
-            2.0, round(st.session_state.table_font_scale + 0.1, 2)
-        )
+        st.session_state.table_font_scale = min(2.0, round(st.session_state.table_font_scale + 0.1, 2))
         st.rerun()
 
 st.sidebar.subheader("📊 Charts & UI Font Size")
 c_col1, c_col2, c_col3 = st.sidebar.columns([1, 1, 1])
 
 if c_col1.button("🔍 A-", key="crt_f_dn", use_container_width=True):
-    st.session_state.chart_font_scale = max(
-        0.7, round(st.session_state.chart_font_scale - 0.1, 2)
-    )
+    st.session_state.chart_font_scale = max(0.7, round(st.session_state.chart_font_scale - 0.1, 2))
     st.rerun()
 
 c_col2.markdown(
@@ -713,14 +657,11 @@ c_col2.markdown(
 )
 
 if c_col3.button("🔍 A+", key="crt_f_up", use_container_width=True):
-    st.session_state.chart_font_scale = min(
-        2.0, round(st.session_state.chart_font_scale + 0.1, 2)
-    )
+    st.session_state.chart_font_scale = min(2.0, round(st.session_state.chart_font_scale + 0.1, 2))
     st.rerun()
 
 st.sidebar.divider()
 
-# --- MANUAL OVERRIDE & INLINE SIDEBAR PRICE INPUTS ---
 manual_override_active = st.sidebar.toggle("🟡 Manual Override", value=False)
 
 if manual_override_active:
@@ -732,12 +673,7 @@ if manual_override_active:
         sym_clean = item["symbol"].replace(".NS", "")
         current_mltp = float(item.get("manual_ltp", item["avg_buy_price"]))
 
-        new_mltp = st.sidebar.number_input(
-            f"{sym_clean} Price (₹)",
-            value=current_mltp,
-            step=1.0,
-            key=f"sb_mltp_{idx}",
-        )
+        new_mltp = st.sidebar.number_input(f"{sym_clean} Price (₹)", value=current_mltp, step=1.0, key=f"sb_mltp_{idx}")
 
         if new_mltp != current_mltp:
             updated_watchlist[idx]["manual_ltp"] = float(new_mltp)
@@ -750,24 +686,13 @@ if manual_override_active:
 
 market_is_open, market_reason = is_market_open()
 
-refresh_rate = st.sidebar.slider(
-    "Refresh Interval (s)", min_value=5, max_value=60, value=10
-)
-
-chart_cols_per_row = st.sidebar.select_slider(
-    "Grid Columns", options=[1, 2, 3], value=2
-)
+refresh_rate = st.sidebar.slider("Refresh Interval (s)", min_value=5, max_value=60, value=10)
+chart_cols_per_row = st.sidebar.select_slider("Grid Columns", options=[1, 2, 3], value=2)
 auto_zoom_risk_range = st.sidebar.toggle("🔍 Auto-Zoom Range", value=True)
 
-# PAUSE AUTO-REFRESH IF MODAL IS OPEN
-if (
-    not manual_override_active
-    and market_is_open
-    and not st.session_state.is_modal_open
-):
+if not manual_override_active and market_is_open and not st.session_state.is_modal_open:
     st_autorefresh(interval=refresh_rate * 1000, key="portfolio_autorefresh")
 
-# --- FETCH 10-DAY HISTORY & PREVIOUS CLOSE ENGINE WITH GAP-FILL ---
 def get_10day_history(sym):
     ticker_obj = yf.Ticker(sym)
     df_daily = ticker_obj.history(period="20d", interval="1d")
@@ -831,7 +756,6 @@ def fetch_portfolio_data(watchlist, use_manual_override):
         "Raw_NetPnL", "Raw_Expenses", "Raw_Invested", "Raw_Current", "df_10d"
     ]
 
-    # Gracefully return empty dataframe with correct schema if watchlist is empty
     if not watchlist:
         return pd.DataFrame(columns=all_cols), []
 
@@ -932,7 +856,6 @@ df, error_logs = fetch_portfolio_data(
 if df.empty:
     st.info("📋 **Your Watchlist is currently empty.** Click **'⚙️ Manage Watchlist & Reorder'** in the sidebar to add your first stock!")
 
-# --- MARKET STATUS BANNER ---
 if manual_override_active:
     st.warning("🟡 **Manual Override Active**: Live price polling is paused. Adjust prices in the sidebar.")
 elif market_is_open:
@@ -958,33 +881,12 @@ sign = "+" if tot_net_pnl >= 0 else ""
 
 index_data = fetch_market_indices()
 
-# --- SVG PIP / DETACH ICONS ---
-icon_detach = """
-<a href="?toggle_pnl_float=true" target="_self" style="text-decoration: none; color: #9CA3AF; opacity: 0.7; transition: opacity 0.2s;" title="Detach as Sticky Bottom-Right Window">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-        <polyline points="15 3 21 3 21 9"></polyline>
-        <line x1="10" y1="14" x2="21" y2="3"></line>
-    </svg>
-</a>
-"""
-
-icon_attach = """
-<a href="?toggle_pnl_float=true" target="_self" style="text-decoration: none; color: #9CA3AF; opacity: 0.8; transition: opacity 0.2s;" title="Dock Back to Header">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-        <polyline points="9 15 15 15 15 9"></polyline>
-        <line x1="9" y1="9" x2="15" y2="15"></line>
-    </svg>
-</a>
-"""
-
 # --- HEADER LAYOUT ---
 top_col1, top_col2 = st.columns([1.4, 1.0])
 
 with top_col1:
     if st.session_state.is_pnl_detached:
-        # Show Total Invested Card in Header when Net P&L is floating
+        # DETACHED STATE: Show ONLY Total Invested card in header
         s1, = st.columns(1)
         s1.markdown(
             f"""
@@ -996,7 +898,7 @@ with top_col1:
             unsafe_allow_html=True,
         )
     else:
-        # Header shows Net P&L (with Detach Button) + Net Return + Total Invested
+        # ATTACHED STATE: Show Net P&L (with Detach Button) + Net Return + Total Invested
         s1, s2, s3 = st.columns(3)
         
         with s1:
@@ -1056,133 +958,6 @@ with top_col2:
             """,
             unsafe_allow_html=True,
         )
-
-# --- STICKY BOTTOM-RIGHT ELEMENT (WHEN DETACHED) ---
-if st.session_state.is_pnl_detached:
-    st.markdown(
-        f"""
-        <style>
-            .sticky-pnl-card {{
-                position: fixed !important;
-                bottom: 24px !important;
-                right: 24px !important;
-                z-index: 999999 !important;
-                background-color: {APP_CONFIG['COLORS']['BG_DARK']};
-                border: 2px solid {border_color};
-                border-radius: 12px;
-                padding: 10px 18px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.85);
-                backdrop-filter: blur(8px);
-                font-family: Source Sans Pro, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-                display: flex;
-                align-items: center;
-                gap: 16px;
-            }}
-            .sticky-pnl-label {{
-                font-size: 0.75rem;
-                color: {APP_CONFIG['COLORS']['TEXT_MUTED']};
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }}
-            .sticky-pnl-val {{
-                font-size: 1.25rem;
-                font-weight: 800;
-                color: {border_color};
-                white-space: nowrap;
-            }}
-            .dock-link-btn {{
-                text-decoration: none;
-                color: #9CA3AF;
-                background-color: #1F2937;
-                border: 1px solid #374151;
-                border-radius: 6px;
-                padding: 3px 8px;
-                font-size: 12px;
-                font-weight: bold;
-                transition: all 0.2s ease;
-            }}
-            .dock-link-btn:hover {{
-                border-color: #FFFFFF;
-                color: #FFFFFF;
-            }}
-        </style>
-        <div class="sticky-pnl-card">
-            <div>
-                <div class="sticky-pnl-label">NET P&L</div>
-                <div class="sticky-pnl-val">
-                    {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
-                </div>
-            </div>
-            <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-# --- STICKY BOTTOM-RIGHT ELEMENT (WHEN DETACHED) ---
-if st.session_state.is_pnl_detached:
-    # 1. Render Floating Container with Custom CSS
-    st.markdown(
-        f"""
-        <style>
-            /* Target the specific container for the floating element and fix it to bottom-right */
-            div[data-testid="stHorizontalBlock"]:has(button[key="dock_pnl_btn"]) {{
-                position: fixed !important;
-                bottom: 24px !important;
-                right: 24px !important;
-                z-index: 999999 !important;
-                background-color: {APP_CONFIG['COLORS']['BG_DARK']} !important;
-                border: 2px solid {border_color} !important;
-                border-radius: 12px !important;
-                padding: 10px 16px !important;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.85) !important;
-                backdrop-filter: blur(8px) !important;
-                display: flex !important;
-                align-items: center !important;
-                width: auto !important;
-                min-width: 210px !important;
-            }}
-            /* Style the dock button inline inside the card */
-            button[key="dock_pnl_btn"] {{
-                background-color: #1F2937 !important;
-                border: 1px solid #374151 !important;
-                color: #9CA3AF !important;
-                border-radius: 6px !important;
-                padding: 2px 8px !important;
-                font-size: 11px !important;
-                height: 24px !important;
-                min-height: 24px !important;
-                line-height: 1 !important;
-            }}
-            button[key="dock_pnl_btn"]:hover {{
-                border-color: #FFFFFF !important;
-                color: #FFFFFF !important;
-            }}
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # 2. Render Card Contents & Dock Button in a Single Floating Row
-    c_card, c_btn = st.columns([0.82, 0.18])
-
-    with c_card:
-        st.markdown(
-            f"""
-            <div style="font-family: Source Sans Pro, sans-serif;">
-                <div style="font-size: 0.75rem; color: {APP_CONFIG['COLORS']['TEXT_MUTED']}; font-weight: 700; text-transform: uppercase;">NET P&L</div>
-                <div style="font-size: 1.25rem; font-weight: 800; color: {border_color}; white-space: nowrap;">
-                    {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    with c_btn:
-        if st.button("↙", key="dock_pnl_btn", help="Dock Back to Header"):
-            st.session_state.is_pnl_detached = False
-            st.rerun()
 
 # --- CONSTRUCT & RENDER TABLES ---
 if not df.empty:
@@ -1427,7 +1202,7 @@ if not df.empty:
         with st.expander("📋 Main Portfolio Table", expanded=True):
             st.markdown(full_html_table, unsafe_allow_html=True)
 
-# --- STREAMLINED EOD JOURNAL EXPORT (OMITTING DAY'S GAIN/LOSS) ---
+# --- STREAMLINED EOD JOURNAL EXPORT ---
 if not df.empty:
     st.sidebar.divider()
     st.sidebar.subheader("📥 Journal Export")
@@ -1747,3 +1522,68 @@ if not df.empty:
         col_idx = idx % num_cols
         with cols[col_idx]:
             st.plotly_chart(create_candlestick_chart(row), use_container_width=True)
+
+# =========================================================
+# FLOATING BOTTOM-RIGHT STICKY CARD (RENDERED AT VERY END)
+# =========================================================
+if st.session_state.is_pnl_detached:
+    st.markdown(
+        f"""
+        <style>
+            .sticky-pnl-card {{
+                position: fixed !important;
+                bottom: 24px !important;
+                right: 24px !important;
+                z-index: 999999 !important;
+                background-color: {APP_CONFIG['COLORS']['BG_DARK']};
+                border: 2px solid {border_color};
+                border-radius: 12px;
+                padding: 10px 18px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.85);
+                backdrop-filter: blur(8px);
+                font-family: Source Sans Pro, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+                display: flex;
+                align-items: center;
+                gap: 16px;
+            }}
+            .sticky-pnl-label {{
+                font-size: 0.75rem;
+                color: {APP_CONFIG['COLORS']['TEXT_MUTED']};
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            .sticky-pnl-val {{
+                font-size: 1.25rem;
+                font-weight: 800;
+                color: {border_color};
+                white-space: nowrap;
+            }}
+            .dock-link-btn {{
+                text-decoration: none;
+                color: #9CA3AF;
+                background-color: #1F2937;
+                border: 1px solid #374151;
+                border-radius: 6px;
+                padding: 3px 8px;
+                font-size: 12px;
+                font-weight: bold;
+                transition: all 0.2s ease;
+            }}
+            .dock-link-btn:hover {{
+                border-color: #FFFFFF;
+                color: #FFFFFF;
+            }}
+        </style>
+        <div class="sticky-pnl-card">
+            <div>
+                <div class="sticky-pnl-label">NET P&L</div>
+                <div class="sticky-pnl-val">
+                    {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
+                </div>
+            </div>
+            <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
