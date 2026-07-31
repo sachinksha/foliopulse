@@ -1043,7 +1043,11 @@ if not df.empty:
         },
     ]
 
-    df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
+    # Include totals rows only in Full Detail View; hide them in Main Focus View
+    if st.session_state.table_view_preset == "📋 Full Detail View":
+        df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
+    else:
+        df_table = df.copy()
 
     if st.session_state.show_table:
         if st.session_state.table_view_preset == "🔍 Main Focus View":
