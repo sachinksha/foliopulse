@@ -107,6 +107,20 @@ if "is_modal_open" not in st.session_state:
 if "show_table" not in st.session_state:
     st.session_state.show_table = True
 
+# --- NET P&L DETACH / DOCK QUERY PARAM HANDLER ---
+if "is_pnl_detached" not in st.session_state:
+    st.session_state.is_pnl_detached = False
+
+if "toggle_pnl_float" in st.query_params:
+    st.session_state.is_pnl_detached = True
+    st.query_params.clear()
+    st.rerun()
+
+if "dock_pnl" in st.query_params:
+    st.session_state.is_pnl_detached = False
+    st.query_params.clear()
+    st.rerun()
+
 fs_table = st.session_state.table_font_scale
 fs_chart = st.session_state.chart_font_scale
 
@@ -184,7 +198,7 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
         }
 
     buy_turnover = qty * buy_price
-    sell_turnover = qty * sell_price
+    sell_turnover = qty * sell_price  # Uses exact sell price for perfect STT alignment
     total_turnover = buy_turnover + sell_turnover
     trade_type = trade_type.upper().strip()
 
@@ -809,7 +823,6 @@ def fetch_portfolio_data(watchlist, use_manual_override):
     lbl_t1 = APP_CONFIG["LABELS"]["T1"]
     lbl_t2 = APP_CONFIG["LABELS"]["T2"]
 
-    # Define standard schema columns
     all_cols = [
         "Symbol", "RawSymbol", "Type", "Status", "Qty", "Avg Buy (₹)", "Invested (₹)",
         "LTP (₹)", "Current Val (₹)", "Weight (%)", lbl_sl, lbl_tsl, lbl_t1, lbl_t2,
@@ -916,7 +929,6 @@ df, error_logs = fetch_portfolio_data(
     st.session_state.config.get("watchlist", []), manual_override_active
 )
 
-# --- EMPTY WATCHLIST FRIENDLY BANNER ---
 if df.empty:
     st.info("📋 **Your Watchlist is currently empty.** Click **'⚙️ Manage Watchlist & Reorder'** in the sidebar to add your first stock!")
 
@@ -929,12 +941,12 @@ else:
     st.info(f"🔴 **Market Status**: {market_reason} | Background auto-refresh paused until market opens.")
 
 # --- TOP STATS & MARKET INDICES HEADER ROW ---
-tot_invested = df["Raw_Invested"].sum()
-tot_current = df["Raw_Current"].sum()
-tot_expenses = df["Raw_Expenses"].sum()
+tot_invested = df["Raw_Invested"].sum() if "Raw_Invested" in df.columns else 0.0
+tot_current = df["Raw_Current"].sum() if "Raw_Current" in df.columns else 0.0
+tot_expenses = df["Raw_Expenses"].sum() if "Raw_Expenses" in df.columns else 0.0
 
 tot_gross_pnl = tot_current - tot_invested
-tot_net_pnl = df["Raw_NetPnL"].sum()
+tot_net_pnl = df["Raw_NetPnL"].sum() if "Raw_NetPnL" in df.columns else 0.0
 tot_net_pnl_pct = (tot_net_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
 
 border_color = (
@@ -942,49 +954,86 @@ border_color = (
     if tot_net_pnl >= 0
     else APP_CONFIG["COLORS"]["LOSS_RED"]
 )
+sign = "+" if tot_net_pnl >= 0 else ""
 
 index_data = fetch_market_indices()
 
-top_col1, top_col2 = st.columns([1.6, 1.0])
+# --- SVG PIP / DETACH ICONS ---
+icon_detach = """
+<a href="?toggle_pnl_float=true" target="_self" style="text-decoration: none; color: #9CA3AF; opacity: 0.7; transition: opacity 0.2s;" title="Detach as Sticky Bottom-Right Window">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+        <polyline points="15 3 21 3 21 9"></polyline>
+        <line x1="10" y1="14" x2="21" y2="3"></line>
+    </svg>
+</a>
+"""
+
+icon_attach = """
+<a href="?toggle_pnl_float=true" target="_self" style="text-decoration: none; color: #9CA3AF; opacity: 0.8; transition: opacity 0.2s;" title="Dock Back to Header">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+        <polyline points="9 15 15 15 15 9"></polyline>
+        <line x1="9" y1="9" x2="15" y2="15"></line>
+    </svg>
+</a>
+"""
+
+# --- HEADER LAYOUT ---
+top_col1, top_col2 = st.columns([1.4, 1.0])
 
 with top_col1:
-    s1, s2, s3, s4 = st.columns(4)
-    s1.markdown(
-        f"""
-        <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Net P&L</div>
-            <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_net_pnl)}</div>
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    s2.markdown(
-        f"""
-        <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Net Return</div>
-            <div class="stat-value" style="color:{border_color};">{tot_net_pnl_pct:+.2f}%</div>
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    s3.markdown(
-        f"""
-        <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Invested</div>
-            <div class="stat-value">{format_compact_inr(tot_invested)}</div>
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
-    s4.markdown(
-        f"""
-        <div class="stat-card" style="border-color: {border_color};">
-            <div class="stat-label">Current Val</div>
-            <div class="stat-value">{format_compact_inr(tot_current)}</div>
-        </div>
-    """,
-        unsafe_allow_html=True,
-    )
+    if st.session_state.is_pnl_detached:
+        # Show Total Invested Card in Header when Net P&L is floating
+        s1, = st.columns(1)
+        s1.markdown(
+            f"""
+            <div class="stat-card" style="border-color: #30363D;">
+                <div class="stat-label">Total Invested</div>
+                <div class="stat-value">{format_compact_inr(tot_invested)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        # Header shows Net P&L (with Detach Button) + Net Return + Total Invested
+        s1, s2, s3 = st.columns(3)
+        
+        with s1:
+            st.markdown(
+                f"""
+                <div class="stat-card" style="border-color: {border_color};">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div class="stat-label">Net P&L</div>
+                        <a href="?toggle_pnl_float=true" target="_self" style="text-decoration: none; color: #9CA3AF; font-size: 0.8rem; border: 1px solid #374151; padding: 1px 5px; border-radius: 4px;" title="Detach to Bottom-Right">↗</a>
+                    </div>
+                    <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_net_pnl)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with s2:
+            st.markdown(
+                f"""
+                <div class="stat-card" style="border-color: {border_color};">
+                    <div class="stat-label">Net Return</div>
+                    <div class="stat-value" style="color:{border_color};">{tot_net_pnl_pct:+.2f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with s3:
+            st.markdown(
+                f"""
+                <div class="stat-card" style="border-color: #30363D;">
+                    <div class="stat-label">Total Invested</div>
+                    <div class="stat-value">{format_compact_inr(tot_invested)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 with top_col2:
     i1, i2, i3 = st.columns(3)
@@ -1004,278 +1053,406 @@ with top_col2:
                 <div class="index-val">{data['val']:,.0f}</div>
                 <div class="index-chg" style="color:{idx_color};">{idx_sign}{data['chg']:,.0f} ({idx_sign}{data['pct']:.1f}%)</div>
             </div>
-        """,
+            """,
             unsafe_allow_html=True,
         )
 
-# --- CONSTRUCT & RENDER TABLES (REORGANIZED & SIMPLIFIED) ---
-winning_df = df[df["Raw_NetPnL"] > 0]
-losing_df = df[df["Raw_NetPnL"] < 0]
+# --- STICKY BOTTOM-RIGHT ELEMENT (WHEN DETACHED) ---
+if st.session_state.is_pnl_detached:
+    st.markdown(
+        f"""
+        <style>
+            .sticky-pnl-card {{
+                position: fixed !important;
+                bottom: 24px !important;
+                right: 24px !important;
+                z-index: 999999 !important;
+                background-color: {APP_CONFIG['COLORS']['BG_DARK']};
+                border: 2px solid {border_color};
+                border-radius: 12px;
+                padding: 10px 18px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.85);
+                backdrop-filter: blur(8px);
+                font-family: Source Sans Pro, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+                display: flex;
+                align-items: center;
+                gap: 16px;
+            }}
+            .sticky-pnl-label {{
+                font-size: 0.75rem;
+                color: {APP_CONFIG['COLORS']['TEXT_MUTED']};
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            .sticky-pnl-val {{
+                font-size: 1.25rem;
+                font-weight: 800;
+                color: {border_color};
+                white-space: nowrap;
+            }}
+            .dock-link-btn {{
+                text-decoration: none;
+                color: #9CA3AF;
+                background-color: #1F2937;
+                border: 1px solid #374151;
+                border-radius: 6px;
+                padding: 3px 8px;
+                font-size: 12px;
+                font-weight: bold;
+                transition: all 0.2s ease;
+            }}
+            .dock-link-btn:hover {{
+                border-color: #FFFFFF;
+                color: #FFFFFF;
+            }}
+        </style>
+        <div class="sticky-pnl-card">
+            <div>
+                <div class="sticky-pnl-label">NET P&L</div>
+                <div class="sticky-pnl-val">
+                    {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
+                </div>
+            </div>
+            <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+# --- STICKY BOTTOM-RIGHT ELEMENT (WHEN DETACHED) ---
+if st.session_state.is_pnl_detached:
+    # 1. Render Floating Container with Custom CSS
+    st.markdown(
+        f"""
+        <style>
+            /* Target the specific container for the floating element and fix it to bottom-right */
+            div[data-testid="stHorizontalBlock"]:has(button[key="dock_pnl_btn"]) {{
+                position: fixed !important;
+                bottom: 24px !important;
+                right: 24px !important;
+                z-index: 999999 !important;
+                background-color: {APP_CONFIG['COLORS']['BG_DARK']} !important;
+                border: 2px solid {border_color} !important;
+                border-radius: 12px !important;
+                padding: 10px 16px !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.85) !important;
+                backdrop-filter: blur(8px) !important;
+                display: flex !important;
+                align-items: center !important;
+                width: auto !important;
+                min-width: 210px !important;
+            }}
+            /* Style the dock button inline inside the card */
+            button[key="dock_pnl_btn"] {{
+                background-color: #1F2937 !important;
+                border: 1px solid #374151 !important;
+                color: #9CA3AF !important;
+                border-radius: 6px !important;
+                padding: 2px 8px !important;
+                font-size: 11px !important;
+                height: 24px !important;
+                min-height: 24px !important;
+                line-height: 1 !important;
+            }}
+            button[key="dock_pnl_btn"]:hover {{
+                border-color: #FFFFFF !important;
+                color: #FFFFFF !important;
+            }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-lbl_sl = APP_CONFIG["LABELS"]["SL"]
-lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
-lbl_t1 = APP_CONFIG["LABELS"]["T1"]
-lbl_t2 = APP_CONFIG["LABELS"]["T2"]
+    # 2. Render Card Contents & Dock Button in a Single Floating Row
+    c_card, c_btn = st.columns([0.82, 0.18])
 
-win_invested = winning_df["Raw_Invested"].sum()
-win_gross = winning_df["Raw_PnL"].sum()
-win_net = winning_df["Raw_NetPnL"].sum()
+    with c_card:
+        st.markdown(
+            f"""
+            <div style="font-family: Source Sans Pro, sans-serif;">
+                <div style="font-size: 0.75rem; color: {APP_CONFIG['COLORS']['TEXT_MUTED']}; font-weight: 700; text-transform: uppercase;">NET P&L</div>
+                <div style="font-size: 1.25rem; font-weight: 800; color: {border_color}; white-space: nowrap;">
+                    {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-loss_invested = losing_df["Raw_Invested"].sum()
-loss_gross = losing_df["Raw_PnL"].sum()
-loss_net = losing_df["Raw_NetPnL"].sum()
+    with c_btn:
+        if st.button("↙", key="dock_pnl_btn", help="Dock Back to Header"):
+            st.session_state.is_pnl_detached = False
+            st.rerun()
 
-totals_rows = [
-    {
-        "Symbol": APP_CONFIG["LABELS"]["SUMMARY_WIN"],
-        "Type": "-",
-        "Status": "Summary",
-        "Qty": winning_df["Qty"].sum(),
-        "Avg Buy (₹)": None,
-        "Invested (₹)": win_invested,
-        "LTP (₹)": None,
-        "Current Val (₹)": winning_df["Raw_Current"].sum(),
-        "Weight (%)": round((win_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
-        lbl_sl: None,
-        lbl_tsl: None,
-        lbl_t1: None,
-        lbl_t2: None,
-        "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
-        "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
-        "Gross P&L (₹)": win_gross,
-        "Gross P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
-        "Net P&L (₹)": win_net,
-        "Net P&L (%)": (win_net / win_invested * 100) if win_invested > 0 else 0.0,
-    },
-    {
-        "Symbol": APP_CONFIG["LABELS"]["SUMMARY_LOSS"],
-        "Type": "-",
-        "Status": "Summary",
-        "Qty": losing_df["Qty"].sum(),
-        "Avg Buy (₹)": None,
-        "Invested (₹)": loss_invested,
-        "LTP (₹)": None,
-        "Current Val (₹)": losing_df["Raw_Current"].sum(),
-        "Weight (%)": round((loss_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
-        lbl_sl: None,
-        lbl_tsl: None,
-        lbl_t1: None,
-        lbl_t2: None,
-        "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
-        "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
-        "Gross P&L (₹)": loss_gross,
-        "Gross P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
-        "Net P&L (₹)": loss_net,
-        "Net P&L (%)": (loss_net / loss_invested * 100) if loss_invested > 0 else 0.0,
-    },
-    {
-        "Symbol": APP_CONFIG["LABELS"]["SUMMARY_NET"],
-        "Type": "-",
-        "Status": "Summary",
-        "Qty": df["Qty"].sum(),
-        "Avg Buy (₹)": None,
-        "Invested (₹)": tot_invested,
-        "LTP (₹)": None,
-        "Current Val (₹)": tot_current,
-        "Weight (%)": 100.0,
-        lbl_sl: None,
-        lbl_tsl: None,
-        lbl_t1: None,
-        lbl_t2: None,
-        "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
-        "Expenses (₹)": tot_expenses,
-        "Gross P&L (₹)": tot_gross_pnl,
-        "Gross P&L (%)": (tot_gross_pnl / tot_invested * 100) if tot_invested > 0 else 0.0,
-        "Net P&L (₹)": tot_net_pnl,
-        "Net P&L (%)": tot_net_pnl_pct,
-    },
-]
+# --- CONSTRUCT & RENDER TABLES ---
+if not df.empty:
+    winning_df = df[df["Raw_NetPnL"] > 0]
+    losing_df = df[df["Raw_NetPnL"] < 0]
 
-df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
+    lbl_sl = APP_CONFIG["LABELS"]["SL"]
+    lbl_tsl = APP_CONFIG["LABELS"]["TSL"]
+    lbl_t1 = APP_CONFIG["LABELS"]["T1"]
+    lbl_t2 = APP_CONFIG["LABELS"]["T2"]
 
-if st.session_state.show_table:
-    if st.session_state.table_view_preset == "🔍 Main Focus View":
-        display_cols = [
-            "Symbol",
-            "Qty",
-            "Avg Buy (₹)",
-            "LTP (₹)",
-            "Day's Gain/Loss",
-            "Net P&L (₹)",
-            "Net P&L (%)",
-        ]
-    else:
-        # Grouped Sequentially: User Inputs -> Market Snapshot -> Risk Parameters -> Net Results
-        display_cols = [
-            "Symbol",
-            "Type",
-            "Qty",
+    win_invested = winning_df["Raw_Invested"].sum()
+    win_gross = winning_df["Raw_PnL"].sum()
+    win_net = winning_df["Raw_NetPnL"].sum()
+
+    loss_invested = losing_df["Raw_Invested"].sum()
+    loss_gross = losing_df["Raw_PnL"].sum()
+    loss_net = losing_df["Raw_NetPnL"].sum()
+
+    totals_rows = [
+        {
+            "Symbol": APP_CONFIG["LABELS"]["SUMMARY_WIN"],
+            "Type": "-",
+            "Status": "Summary",
+            "Qty": winning_df["Qty"].sum(),
+            "Avg Buy (₹)": None,
+            "Invested (₹)": win_invested,
+            "LTP (₹)": None,
+            "Current Val (₹)": winning_df["Raw_Current"].sum(),
+            "Weight (%)": round((win_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
+            lbl_sl: None,
+            lbl_tsl: None,
+            lbl_t1: None,
+            lbl_t2: None,
+            "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
+            "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
+            "Gross P&L (₹)": win_gross,
+            "Gross P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
+            "Net P&L (₹)": win_net,
+            "Net P&L (%)": (win_net / win_invested * 100) if win_invested > 0 else 0.0,
+        },
+        {
+            "Symbol": APP_CONFIG["LABELS"]["SUMMARY_LOSS"],
+            "Type": "-",
+            "Status": "Summary",
+            "Qty": losing_df["Qty"].sum(),
+            "Avg Buy (₹)": None,
+            "Invested (₹)": loss_invested,
+            "LTP (₹)": None,
+            "Current Val (₹)": losing_df["Raw_Current"].sum(),
+            "Weight (%)": round((loss_invested / tot_invested * 100) if tot_invested > 0 else 0, 2),
+            lbl_sl: None,
+            lbl_tsl: None,
+            lbl_t1: None,
+            lbl_t2: None,
+            "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
+            "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
+            "Gross P&L (₹)": loss_gross,
+            "Gross P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
+            "Net P&L (₹)": loss_net,
+            "Net P&L (%)": (loss_net / loss_invested * 100) if loss_invested > 0 else 0.0,
+        },
+        {
+            "Symbol": APP_CONFIG["LABELS"]["SUMMARY_NET"],
+            "Type": "-",
+            "Status": "Summary",
+            "Qty": df["Qty"].sum(),
+            "Avg Buy (₹)": None,
+            "Invested (₹)": tot_invested,
+            "LTP (₹)": None,
+            "Current Val (₹)": tot_current,
+            "Weight (%)": 100.0,
+            lbl_sl: None,
+            lbl_tsl: None,
+            lbl_t1: None,
+            lbl_t2: None,
+            "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
+            "Expenses (₹)": tot_expenses,
+            "Gross P&L (₹)": tot_gross_pnl,
+            "Gross P&L (%)": (tot_gross_pnl / tot_invested * 100) if tot_invested > 0 else 0.0,
+            "Net P&L (₹)": tot_net_pnl,
+            "Net P&L (%)": tot_net_pnl_pct,
+        },
+    ]
+
+    df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
+
+    if st.session_state.show_table:
+        if st.session_state.table_view_preset == "🔍 Main Focus View":
+            display_cols = [
+                "Symbol",
+                "Qty",
+                "Avg Buy (₹)",
+                "LTP (₹)",
+                "Day's Gain/Loss",
+                "Net P&L (₹)",
+                "Net P&L (%)",
+            ]
+        else:
+            display_cols = [
+                "Symbol",
+                "Type",
+                "Qty",
+                "Avg Buy (₹)",
+                "Invested (₹)",
+                "LTP (₹)",
+                "Current Val (₹)",
+                "Weight (%)",
+                lbl_sl,
+                lbl_tsl,
+                lbl_t1,
+                lbl_t2,
+                "Day's Gain/Loss",
+                "Expenses (₹)",
+                "Gross P&L (₹)",
+                "Gross P&L (%)",
+                "Net P&L (₹)",
+                "Net P&L (%)",
+            ]
+
+        render_df = df_table[display_cols].copy()
+
+        currency_cols = [
             "Avg Buy (₹)",
             "Invested (₹)",
             "LTP (₹)",
             "Current Val (₹)",
-            "Weight (%)",
             lbl_sl,
             lbl_tsl,
             lbl_t1,
             lbl_t2,
-            "Day's Gain/Loss",
             "Expenses (₹)",
-            "Gross P&L (₹)",
-            "Gross P&L (%)",
-            "Net P&L (₹)",
-            "Net P&L (%)",
         ]
+        for col in currency_cols:
+            if col in render_df.columns:
+                render_df[col] = render_df[col].apply(
+                    lambda x: f"₹{x:,.2f}"
+                    if pd.notnull(x) and isinstance(x, (int, float))
+                    else "-"
+                )
 
-    render_df = df_table[display_cols].copy()
-
-    currency_cols = [
-        "Avg Buy (₹)",
-        "Invested (₹)",
-        "LTP (₹)",
-        "Current Val (₹)",
-        lbl_sl,
-        lbl_tsl,
-        lbl_t1,
-        lbl_t2,
-        "Expenses (₹)",
-    ]
-    for col in currency_cols:
-        if col in render_df.columns:
-            render_df[col] = render_df[col].apply(
-                lambda x: f"₹{x:,.2f}"
-                if pd.notnull(x) and isinstance(x, (int, float))
-                else "-"
+        if "Weight (%)" in render_df.columns:
+            render_df["Weight (%)"] = render_df["Weight (%)"].apply(
+                lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
             )
 
-    if "Weight (%)" in render_df.columns:
-        render_df["Weight (%)"] = render_df["Weight (%)"].apply(
-            lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
-        )
+        tbl_font_rem = round(0.9 * fs_table, 2)
+        tbl_header_rem = round(0.95 * fs_table, 2)
+        padding_v = round(0.3 * fs_table, 2)
 
-    tbl_font_rem = round(0.9 * fs_table, 2)
-    tbl_header_rem = round(0.95 * fs_table, 2)
-    padding_v = round(0.3 * fs_table, 2)
+        html_rows = []
+        header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
+        html_rows.append(f"<thead><tr>{header_cells}</tr></thead>")
 
-    html_rows = []
-    header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
-    html_rows.append(f"<thead><tr>{header_cells}</tr></thead>")
+        html_rows.append("<tbody>")
+        for idx, row in render_df.iterrows():
+            row_cells = []
+            is_summary = df_table.loc[idx, "Status"] == "Summary" if "Status" in df_table.columns else False
+            row_bg = (
+                f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
+                if is_summary
+                else ""
+            )
 
-    html_rows.append("<tbody>")
-    for idx, row in render_df.iterrows():
-        row_cells = []
-        is_summary = df_table.loc[idx, "Status"] == "Summary" if "Status" in df_table.columns else False
-        row_bg = (
-            f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
-            if is_summary
-            else ""
-        )
+            for col in display_cols:
+                val = row[col]
+                cell_style = ""
 
-        for col in display_cols:
-            val = row[col]
-            cell_style = ""
+                if col == "Type" and val in ["DELIVERY", "INTRADAY"]:
+                    val = f"<span style='font-size:0.8em; padding:2px 5px; border-radius:3px; background-color:#1E293B; color:#A1A1AA;'>{val}</span>"
 
-            if col == "Type" and val in ["DELIVERY", "INTRADAY"]:
-                val = f"<span style='font-size:0.8em; padding:2px 5px; border-radius:3px; background-color:#1E293B; color:#A1A1AA;'>{val}</span>"
+                elif col == "Day's Gain/Loss" and isinstance(val, (int, float)):
+                    color = (
+                        APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                        if val >= 0
+                        else APP_CONFIG["COLORS"]["LOSS_RED"]
+                    )
+                    sign_val = "+" if val >= 0 else ""
+                    
+                    if not is_summary:
+                        pct = df_table.loc[idx, "Day's Gain/Loss (%)"]
+                        val = f"{sign_val}₹{val:,.2f} ({sign_val}{pct:.2f}%)"
+                    else:
+                        val = f"{sign_val}₹{val:,.2f}"
+                    cell_style = f"color: {color}; font-weight: bold;"
 
-            elif col == "Day's Gain/Loss" and isinstance(val, (int, float)):
-                color = (
-                    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-                    if val >= 0
-                    else APP_CONFIG["COLORS"]["LOSS_RED"]
-                )
-                sign = "+" if val >= 0 else ""
-                
-                if not is_summary:
-                    pct = df_table.loc[idx, "Day's Gain/Loss (%)"]
-                    val = f"{sign}₹{val:,.2f} ({sign}{pct:.2f}%)"
-                else:
-                    val = f"{sign}₹{val:,.2f}"
-                cell_style = f"color: {color}; font-weight: bold;"
+                elif col in ["Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
+                    color = (
+                        APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                        if val >= 0
+                        else APP_CONFIG["COLORS"]["LOSS_RED"]
+                    )
+                    sign_val = "+" if val >= 0 else ""
+                    val = f"{sign_val}₹{val:,.2f}" if "₹" in col else f"{val:+.2f}%"
+                    cell_style = f"color: {color}; font-weight: bold;"
+                elif val is None:
+                    val = "-"
 
-            elif col in ["Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
-                color = (
-                    APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-                    if val >= 0
-                    else APP_CONFIG["COLORS"]["LOSS_RED"]
-                )
-                sign = "+" if val >= 0 else ""
-                val = f"{sign}₹{val:,.2f}" if "₹" in col else f"{val:+.2f}%"
-                cell_style = f"color: {color}; font-weight: bold;"
-            elif val is None:
-                val = "-"
+                row_cells.append(f"<td style='{cell_style}'>{val}</td>")
 
-            row_cells.append(f"<td style='{cell_style}'>{val}</td>")
+            html_rows.append(f"<tr style='{row_bg}'>{''.join(row_cells)}</tr>")
 
-        html_rows.append(f"<tr style='{row_bg}'>{''.join(row_cells)}</tr>")
+        html_rows.append("</tbody>")
 
-    html_rows.append("</tbody>")
+        full_html_table = f"""
+        <style>
+            .tv-portfolio-table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 0.2rem;
+                background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
+                color: #FFFFFF;
+                font-family: Source Sans Pro, sans-serif;
+            }}
+            .tv-portfolio-table th {{
+                background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
+                color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
+                font-size: {tbl_header_rem}rem !important;
+                font-weight: 800;
+                padding: {padding_v}rem 0.5rem !important;
+                text-align: left;
+                border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
+                white-space: nowrap;
+            }}
+            .tv-portfolio-table td {{
+                font-size: {tbl_font_rem}rem !important;
+                padding: {padding_v}rem 0.5rem !important;
+                border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
+                white-space: nowrap;
+            }}
+            .tv-portfolio-table tr:hover {{
+                background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
+            }}
+        </style>
+        <div style="overflow-x: auto; width: 100%;">
+            <table class="tv-portfolio-table">
+                {"".join(html_rows)}
+            </table>
+        </div>
+        """
 
-    full_html_table = f"""
-    <style>
-        .tv-portfolio-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 0.2rem;
-            background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
-            color: #FFFFFF;
-            font-family: Source Sans Pro, sans-serif;
-        }}
-        .tv-portfolio-table th {{
-            background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
-            color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
-            font-size: {tbl_header_rem}rem !important;
-            font-weight: 800;
-            padding: {padding_v}rem 0.5rem !important;
-            text-align: left;
-            border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
-            white-space: nowrap;
-        }}
-        .tv-portfolio-table td {{
-            font-size: {tbl_font_rem}rem !important;
-            padding: {padding_v}rem 0.5rem !important;
-            border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
-            white-space: nowrap;
-        }}
-        .tv-portfolio-table tr:hover {{
-            background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
-        }}
-    </style>
-    <div style="overflow-x: auto; width: 100%;">
-        <table class="tv-portfolio-table">
-            {"".join(html_rows)}
-        </table>
-    </div>
-    """
+        with st.expander("📋 Main Portfolio Table", expanded=True):
+            st.markdown(full_html_table, unsafe_allow_html=True)
 
-    with st.expander("📋 Main Portfolio Table", expanded=True):
-        st.markdown(full_html_table, unsafe_allow_html=True)
+# --- STREAMLINED EOD JOURNAL EXPORT (OMITTING DAY'S GAIN/LOSS) ---
+if not df.empty:
+    st.sidebar.divider()
+    st.sidebar.subheader("📥 Journal Export")
 
-# --- STREAMLINED EOD JOURNAL EXPORT ---
-st.sidebar.divider()
-st.sidebar.subheader("📥 Journal Export")
+    export_cols = [
+        "Symbol", "Type", "Qty", "Avg Buy (₹)", "Invested (₹)",
+        "LTP (₹)", "Current Val (₹)", "Weight (%)",
+        lbl_sl, lbl_tsl, lbl_t1, lbl_t2,
+        "Expenses (₹)", "Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"
+    ]
 
-export_cols = [
-    "Symbol", "Type", "Qty", "Avg Buy (₹)", "Invested (₹)",
-    "LTP (₹)", "Current Val (₹)", "Weight (%)",
-    lbl_sl, lbl_tsl, lbl_t1, lbl_t2,
-    "Expenses (₹)", "Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"
-]
+    journal_df = df[export_cols].copy()
+    today_stamp = datetime.now().strftime("%Y-%m-%d")
+    journal_df.insert(0, "Date", today_stamp)
+    journal_df["Comments"] = ""
 
-journal_df = df[export_cols].copy()
-today_stamp = datetime.now().strftime("%Y-%m-%d")
-journal_df.insert(0, "Date", today_stamp)
-journal_df["Comments"] = ""
+    csv_data = journal_df.to_csv(index=False).encode("utf-8")
 
-csv_data = journal_df.to_csv(index=False).encode("utf-8")
-
-st.sidebar.download_button(
-    label=f"📥 Export EOD Journal ({today_stamp})",
-    data=csv_data,
-    file_name=f"foliopulse_journal_{today_stamp}.csv",
-    mime="text/csv",
-    use_container_width=True,
-)
+    st.sidebar.download_button(
+        label=f"📥 Export EOD Journal ({today_stamp})",
+        data=csv_data,
+        file_name=f"foliopulse_journal_{today_stamp}.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
 def create_candlestick_chart(row):
@@ -1561,11 +1738,12 @@ def create_candlestick_chart(row):
     return fig
 
 # --- CHARTS RENDER SECTION ---
-stock_rows_only = df[df["Status"] != "Summary"]
+if not df.empty:
+    stock_rows_only = df[df["Status"] != "Summary"]
 
-num_cols = chart_cols_per_row
-cols = st.columns(num_cols)
-for idx, (_, row) in enumerate(stock_rows_only.iterrows()):
-    col_idx = idx % num_cols
-    with cols[col_idx]:
-        st.plotly_chart(create_candlestick_chart(row), use_container_width=True)
+    num_cols = chart_cols_per_row
+    cols = st.columns(num_cols)
+    for idx, (_, row) in enumerate(stock_rows_only.iterrows()):
+        col_idx = idx % num_cols
+        with cols[col_idx]:
+            st.plotly_chart(create_candlestick_chart(row), use_container_width=True)
