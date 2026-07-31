@@ -1524,17 +1524,17 @@ if not df.empty:
             st.plotly_chart(create_candlestick_chart(row), use_container_width=True)
 
 # =========================================================
-# FLOATING BOTTOM-RIGHT STICKY CARD (RENDERED AT VERY END)
+# VISUAL VIEWPORT-AWARE STICKY CARD (RENDERED AT VERY END)
 # =========================================================
 if st.session_state.is_pnl_detached:
     st.markdown(
         f"""
         <style>
-            .sticky-pnl-card {{
+            #sticky-pnl-card-container {{
                 position: fixed !important;
                 bottom: 24px !important;
                 right: 24px !important;
-                z-index: 999999 !important;
+                z-index: 9999999 !important;
                 background-color: {APP_CONFIG['COLORS']['BG_DARK']};
                 border: 2px solid {border_color};
                 border-radius: 12px;
@@ -1545,6 +1545,8 @@ if st.session_state.is_pnl_detached:
                 display: flex;
                 align-items: center;
                 gap: 16px;
+                will-change: transform;
+                transform-origin: bottom right;
             }}
             .sticky-pnl-label {{
                 font-size: 0.75rem;
@@ -1575,7 +1577,8 @@ if st.session_state.is_pnl_detached:
                 color: #FFFFFF;
             }}
         </style>
-        <div class="sticky-pnl-card">
+
+        <div id="sticky-pnl-card-container">
             <div>
                 <div class="sticky-pnl-label">NET P&L</div>
                 <div class="sticky-pnl-val">
@@ -1584,6 +1587,34 @@ if st.session_state.is_pnl_detached:
             </div>
             <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
         </div>
+
+        <script>
+        (function() {{
+            const el = document.getElementById('sticky-pnl-card-container');
+            if (!el) return;
+
+            function repositionToVisualViewport() {{
+                if (!window.visualViewport) return;
+
+                const vv = window.visualViewport;
+                
+                // Calculate scroll and zoom offsets
+                const offsetX = vv.offsetLeft;
+                const offsetY = (window.innerHeight + window.scrollY) - (vv.offsetTop + vv.height);
+                const scale = 1 / vv.scale;
+
+                // Dynamically offset and scale element into the visible bounds
+                el.style.transform = `translate(${{offsetX}}px, -${{offsetY}}px) scale(${{scale}})`;
+            }}
+
+            if (window.visualViewport) {{
+                window.visualViewport.addEventListener('scroll', repositionToVisualViewport);
+                window.visualViewport.addEventListener('resize', repositionToVisualViewport);
+                window.addEventListener('scroll', repositionToVisualViewport);
+                repositionToVisualViewport();
+            }}
+        }})();
+        </script>
         """,
         unsafe_allow_html=True,
     )
