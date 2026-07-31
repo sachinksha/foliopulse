@@ -1524,97 +1524,76 @@ if not df.empty:
             st.plotly_chart(create_candlestick_chart(row), use_container_width=True)
 
 # =========================================================
-# VISUAL VIEWPORT-AWARE STICKY CARD (RENDERED AT VERY END)
+# FLOATING BOTTOM-RIGHT STICKY CARD (RENDERED AT VERY END)
 # =========================================================
 if st.session_state.is_pnl_detached:
     st.markdown(
         f"""
         <style>
-            #sticky-pnl-card-container {{
+            /* Force GPU layer promotion to stick to mobile Visual Viewport */
+            .sticky-pnl-card-wrapper {{
                 position: fixed !important;
                 bottom: 24px !important;
                 right: 24px !important;
                 z-index: 9999999 !important;
-                background-color: {APP_CONFIG['COLORS']['BG_DARK']};
-                border: 2px solid {border_color};
-                border-radius: 12px;
-                padding: 10px 18px;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.85);
-                backdrop-filter: blur(8px);
-                font-family: Source Sans Pro, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-                display: flex;
-                align-items: center;
-                gap: 16px;
+                -webkit-transform: translate3d(0, 0, 0);
+                transform: translate3d(0, 0, 0);
                 will-change: transform;
-                transform-origin: bottom right;
+            }}
+            .sticky-pnl-card {{
+                background-color: {APP_CONFIG['COLORS']['BG_DARK']} !important;
+                border: 2px solid {border_color} !important;
+                border-radius: 12px !important;
+                padding: 10px 18px !important;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.85) !important;
+                backdrop-filter: blur(8px) !important;
+                -webkit-backdrop-filter: blur(8px) !important;
+                font-family: Source Sans Pro, -apple-system, BlinkMacSystemFont, Roboto, sans-serif !important;
+                display: flex !important;
+                align-items: center !important;
+                gap: 16px !important;
             }}
             .sticky-pnl-label {{
-                font-size: 0.75rem;
-                color: {APP_CONFIG['COLORS']['TEXT_MUTED']};
-                font-weight: 700;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
+                font-size: 0.75rem !important;
+                color: {APP_CONFIG['COLORS']['TEXT_MUTED']} !important;
+                font-weight: 700 !important;
+                text-transform: uppercase !important;
+                letter-spacing: 0.5px !important;
             }}
             .sticky-pnl-val {{
-                font-size: 1.25rem;
-                font-weight: 800;
-                color: {border_color};
-                white-space: nowrap;
+                font-size: 1.25rem !important;
+                font-weight: 800 !important;
+                color: {border_color} !important;
+                white-space: nowrap !important;
             }}
             .dock-link-btn {{
-                text-decoration: none;
-                color: #9CA3AF;
-                background-color: #1F2937;
-                border: 1px solid #374151;
-                border-radius: 6px;
-                padding: 3px 8px;
-                font-size: 12px;
-                font-weight: bold;
-                transition: all 0.2s ease;
+                text-decoration: none !important;
+                color: #9CA3AF !important;
+                background-color: #1F2937 !important;
+                border: 1px solid #374151 !important;
+                border-radius: 6px !important;
+                padding: 3px 8px !important;
+                font-size: 12px !important;
+                font-weight: bold !important;
+                transition: all 0.2s ease !important;
             }}
             .dock-link-btn:hover {{
-                border-color: #FFFFFF;
-                color: #FFFFFF;
+                border-color: #FFFFFF !important;
+                color: #FFFFFF !important;
             }}
         </style>
 
-        <div id="sticky-pnl-card-container">
-            <div>
-                <div class="sticky-pnl-label">NET P&L</div>
-                <div class="sticky-pnl-val">
-                    {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
+        <div class="sticky-pnl-card-wrapper">
+            <div class="sticky-pnl-card">
+                <div>
+                    <div class="sticky-pnl-label">NET P&L</div>
+                    <div class="sticky-pnl-val">
+                        {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
+                    </div>
                 </div>
+                <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
             </div>
-            <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
         </div>
-
-        <script>
-        (function() {{
-            const el = document.getElementById('sticky-pnl-card-container');
-            if (!el) return;
-
-            function repositionToVisualViewport() {{
-                if (!window.visualViewport) return;
-
-                const vv = window.visualViewport;
-                
-                // Calculate scroll and zoom offsets
-                const offsetX = vv.offsetLeft;
-                const offsetY = (window.innerHeight + window.scrollY) - (vv.offsetTop + vv.height);
-                const scale = 1 / vv.scale;
-
-                // Dynamically offset and scale element into the visible bounds
-                el.style.transform = `translate(${{offsetX}}px, -${{offsetY}}px) scale(${{scale}})`;
-            }}
-
-            if (window.visualViewport) {{
-                window.visualViewport.addEventListener('scroll', repositionToVisualViewport);
-                window.visualViewport.addEventListener('resize', repositionToVisualViewport);
-                window.addEventListener('scroll', repositionToVisualViewport);
-                repositionToVisualViewport();
-            }}
-        }})();
-        </script>
         """,
         unsafe_allow_html=True,
     )
