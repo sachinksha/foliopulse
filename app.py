@@ -1341,14 +1341,21 @@ def create_candlestick_chart(row):
             continue
         horizontal_levels.append(item)
 
-    right_align_date = dates[min(len(dates) - 2, len(dates) - 1)]
-    left_align_date = dates[max(0, len(dates) // 3)]
-    ltp_left_align_date = dates[max(0, len(dates) // 4)]
+    # --- ANCHOR DATES ---
+    num_dates = len(dates)
+    left_anchor_date = dates[0]
+    # Move LTP further right to dates[2] (or dates[3] if available) to avoid overlap with Buy
+    ltp_anchor_index = min(2, num_dates - 1) if num_dates > 2 else (1 if num_dates > 1 else 0)
+    ltp_anchor_date = dates[ltp_anchor_index]
 
     c_title_size = int(14 * fs_chart)
     c_badge_size = int(11 * fs_chart)
     c_axis_size = int(11 * fs_chart)
 
+    # Detect if Buy and LTP values are very close (< 1.5% difference)
+    prices_are_close = buy_val > 0 and abs(ltp_val - buy_val) / buy_val < 0.015
+
+    # Draw horizontal guide lines
     for item in horizontal_levels:
         fig.add_trace(
             go.Scatter(
@@ -1361,39 +1368,50 @@ def create_candlestick_chart(row):
             )
         )
 
+    # COLUMN 1 (dates[0]): Buy Price, Targets (T1, T2), Stop-Losses (SL, TSL)
     for item in horizontal_levels:
-        if item["name"] in [lbl_buy, lbl_ltp]:
+        if item["name"] == lbl_ltp:
             continue
 
-        level_exp_details = compute_trade_expenses_detailed(qty, buy_val, item["val"], trade_type)
-        level_gross_pnl = (item["val"] - buy_val) * qty
-        level_net_pnl = level_gross_pnl - level_exp_details["total_expenses"]
-        level_net_pct = (level_net_pnl / invested * 100) if invested > 0 else 0.0
+        if item["name"] == lbl_buy:
+            badge_text = f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>BUY: {qty} Qty @ ₹{buy_val:,.2f}</b></span> "
+            border_c = APP_CONFIG["COLORS"]["BUY_BLUE"]
+            text_c = APP_CONFIG["COLORS"]["BUY_BLUE"]
+            # If prices are very close, anchor Buy slightly lower to avoid collision
+            y_anchor_buy = "top" if prices_are_close else "middle"
+        else:
+            level_exp_details = compute_trade_expenses_detailed(qty, buy_val, item["val"], trade_type)
+            level_gross_pnl = (item["val"] - buy_val) * qty
+            level_net_pnl = level_gross_pnl - level_exp_details["total_expenses"]
+            level_net_pct = (level_net_pnl / invested * 100) if invested > 0 else 0.0
 
-        lvl_color = (
-            APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-            if level_net_pnl >= 0
-            else APP_CONFIG["COLORS"]["LOSS_RED"]
-        )
-        lvl_sign = "+" if level_net_pnl >= 0 else ""
+            lvl_color = (
+                APP_CONFIG["COLORS"]["PROFIT_GREEN"]
+                if level_net_pnl >= 0
+                else APP_CONFIG["COLORS"]["LOSS_RED"]
+            )
+            lvl_sign = "+" if level_net_pnl >= 0 else ""
 
-        badge_text = (
-            f" <b>{item['name']}</b> | "
-            f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{level_net_pnl:,.2f} ({level_net_pct:+.1f}%)</b></span> "
-        )
+            badge_text = (
+                f" <b>{item['name']}</b> | "
+                f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{level_net_pnl:,.2f} ({level_net_pct:+.1f}%)</b></span> "
+            )
+            border_c = item["color"]
+            text_c = item["color"]
+            y_anchor_buy = "middle"
 
         fig.add_annotation(
-            x=right_align_date,
+            x=left_anchor_date,
             y=item["val"],
             text=badge_text,
             showarrow=False,
-            font=dict(color=item["color"], size=c_badge_size),
+            font=dict(color=text_c, size=c_badge_size),
             bgcolor="#161B22",
-            bordercolor=item["color"],
+            bordercolor=border_c,
             borderwidth=1.5,
             borderpad=3,
-            yanchor="middle",
-            xanchor="center",
+            yanchor=y_anchor_buy,
+            xanchor="left",
         )
 
         fig.add_annotation(
@@ -1408,33 +1426,7 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    if buy_val > 0 and qty > 0:
-        fig.add_annotation(
-            x=left_align_date,
-            y=buy_val,
-            text=f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>{qty} Qty @ ₹{buy_val:,.2f} ({trade_type})</b></span> ",
-            showarrow=False,
-            font=dict(size=int(11 * fs_chart)),
-            bgcolor="#161B22",
-            bordercolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
-            borderwidth=1.5,
-            borderpad=3,
-            yanchor="middle",
-            xanchor="center",
-        )
-
-        fig.add_annotation(
-            xref="paper",
-            x=1.002,
-            y=buy_val,
-            text=f" <b>{buy_val:,.2f}</b> ",
-            showarrow=False,
-            font=dict(color="#FFFFFF", size=c_badge_size),
-            bgcolor=APP_CONFIG["COLORS"]["BUY_BLUE"],
-            xanchor="left",
-            yanchor="middle",
-        )
-
+    # COLUMN 2 (dates[2]): Live LTP Badge shifted right with anti-overlap vertical alignment
     ltp_item = next((item for item in horizontal_levels if item["name"] == lbl_ltp), None)
     if ltp_item:
         badge_text_ltp = (
@@ -1442,8 +1434,11 @@ def create_candlestick_chart(row):
             f"<span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{ltp_net_pnl:,.2f} ({ltp_net_pct:+.1f}%)</b></span> "
         )
 
+        # If prices are close, float LTP slightly higher
+        y_anchor_ltp = "bottom" if prices_are_close else "middle"
+
         fig.add_annotation(
-            x=ltp_left_align_date,
+            x=ltp_anchor_date,
             y=ltp_item["val"],
             text=badge_text_ltp,
             showarrow=False,
@@ -1452,8 +1447,8 @@ def create_candlestick_chart(row):
             bordercolor=APP_CONFIG["COLORS"]["LTP_RED"],
             borderwidth=2.0,
             borderpad=4,
-            yanchor="middle",
-            xanchor="center",
+            yanchor=y_anchor_ltp,
+            xanchor="left",
         )
 
         fig.add_annotation(
