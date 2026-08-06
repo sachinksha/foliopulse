@@ -906,13 +906,6 @@ else:
 if df.empty:
     st.info("📋 **Your Watchlist is currently empty.** Click **'⚙️ Manage Watchlist & Reorder'** in the sidebar to add your first stock!")
 
-if manual_override_active:
-    st.warning("🟡 **Manual Override Active**: Live price polling is paused. Adjust prices in the sidebar.")
-elif market_is_open:
-    st.caption(f"🟢 **Market Status**: {market_reason} | Auto-Refreshing every {refresh_rate}s")
-else:
-    st.info(f"🔴 **Market Status**: {market_reason} | Background auto-refresh paused until market opens.")
-
 # --- TOP STATS & MARKET INDICES HEADER ROW ---
 tot_invested = df["Raw_Invested"].sum() if "Raw_Invested" in df.columns else 0.0
 tot_current = df["Raw_Current"].sum() if "Raw_Current" in df.columns else 0.0
