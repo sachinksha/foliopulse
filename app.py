@@ -698,17 +698,30 @@ def get_10day_history(sym):
     df_daily = ticker_obj.history(period="20d", interval="1d")
 
     if df_daily.empty:
-        raise ValueError(f"No historical data returned for {sym}")
+        raise ValueError(f"Yahoo Finance returned empty history for {sym}. (Possible rate-limit/block)")
 
     df_daily.index = df_daily.index.strftime("%Y-%m-%d")
 
+    # Multi-tier price resolution to prevent silent stale price fallbacks
+    ltp = None
+    prev_close = None
+
+    # Tier 1: Fast Info
     try:
         fast_info = ticker_obj.fast_info
         ltp = round(float(fast_info.last_price), 2)
         prev_close = float(fast_info.previous_close)
     except Exception:
-        ltp = round(float(df_daily["Close"].iloc[-1]), 2)
-        prev_close = float(df_daily["Close"].iloc[-2]) if len(df_daily) > 1 else ltp
+        pass
+
+    # Tier 2: Recent Close Price from Daily History
+    if ltp is None or ltp <= 0:
+        if len(df_daily) > 0:
+            ltp = round(float(df_daily["Close"].iloc[-1]), 2)
+            prev_close = float(df_daily["Close"].iloc[-2]) if len(df_daily) > 1 else ltp
+
+    if ltp is None or ltp <= 0:
+        raise ValueError(f"Could not extract valid LTP for {sym}")
 
     india_tz = pytz.timezone("Asia/Kolkata")
     now = datetime.now(india_tz)
@@ -852,6 +865,43 @@ def fetch_portfolio_data(watchlist, use_manual_override):
 df, error_logs = fetch_portfolio_data(
     st.session_state.config.get("watchlist", []), manual_override_active
 )
+
+# --- MARKET STATUS & STALE DATA CALLOUT BANNER ---
+india_tz = pytz.timezone("Asia/Kolkata")
+last_fetched_time = datetime.now(india_tz).strftime("%I:%M:%S %p IST")
+
+# Detect if any symbol is running on stale/cached data
+stale_symbols = [
+    row["Symbol"] for _, row in df.iterrows() 
+    if row.get("Status") == "🔴 Stale"
+] if not df.empty else []
+
+# 1. Global Callout Banner if Data is Stale
+if stale_symbols:
+    st.error(
+        f"⚠️ **STALE DATA WARNING**: Live market data fetch failed for **{', '.join(stale_symbols)}**. "
+        f"Showing last known cached prices. (Yahoo Finance API rate-limited or unreachable). "
+        f"Try clicking **'🔄 Force Data Refresh'** in the sidebar."
+    )
+elif error_logs:
+    st.warning(f"⚠️ **Market Fetch Notice**: {'; '.join(error_logs)}")
+
+# 2. Market Status Line with Exact Timestamp Marker
+if manual_override_active:
+    st.warning("🟡 **Manual Override Active**: Live price polling is paused. Adjust prices in the sidebar.")
+elif market_is_open:
+    st.caption(
+        f"🟢 **Market Status**: {market_reason} | "
+        f"🕒 **Last Fetched**: `{last_fetched_time}` | "
+        f"Auto-Refreshing every {refresh_rate}s"
+    )
+else:
+    st.info(
+        f"🔴 **Market Status**: {market_reason} | "
+        f"🕒 **Last Fetched**: `{last_fetched_time}` | "
+        f"Background auto-refresh paused."
+    )
+
 
 if df.empty:
     st.info("📋 **Your Watchlist is currently empty.** Click **'⚙️ Manage Watchlist & Reorder'** in the sidebar to add your first stock!")
@@ -1232,6 +1282,13 @@ if not df.empty:
         mime="text/csv",
         use_container_width=True,
     )
+
+# --- FORCE REFRESH / CACHE CLEAR CONTROL ---
+st.sidebar.divider()
+if st.sidebar.button("🔄 Force Data Refresh", type="secondary", use_container_width=True, help="Purge server cache & re-fetch from Yahoo Finance"):
+    st.cache_data.clear()
+    st.session_state.stock_cache = {}
+    st.rerun()
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
 def create_candlestick_chart(row):
