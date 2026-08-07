@@ -1035,7 +1035,6 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Day's Gain/Loss": winning_df["Raw_DayPnL"].sum(),
             "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
             "Gross P&L (₹)": win_gross,
             "Gross P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
@@ -1056,7 +1055,6 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Day's Gain/Loss": losing_df["Raw_DayPnL"].sum(),
             "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
             "Gross P&L (₹)": loss_gross,
             "Gross P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
@@ -1077,7 +1075,6 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Day's Gain/Loss": df["Raw_DayPnL"].sum(),
             "Expenses (₹)": tot_expenses,
             "Gross P&L (₹)": tot_gross_pnl,
             "Gross P&L (%)": (tot_gross_pnl / tot_invested * 100) if tot_invested > 0 else 0.0,
@@ -1086,7 +1083,7 @@ if not df.empty:
         },
     ]
 
-    # Include totals rows only in Full Detail View; hide them in Main Focus View
+    # Safely create df_table based on current preset
     if st.session_state.table_view_preset == "📋 Full Detail View":
         df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
     else:
@@ -1099,7 +1096,6 @@ if not df.empty:
                 "Qty",
                 "Avg Buy (₹)",
                 "LTP (₹)",
-                "Day's Gain/Loss",
                 "Net P&L (₹)",
                 "Net P&L (%)",
             ]
@@ -1117,7 +1113,6 @@ if not df.empty:
                 lbl_tsl,
                 lbl_t1,
                 lbl_t2,
-                "Day's Gain/Loss",
                 "Expenses (₹)",
                 "Gross P&L (₹)",
                 "Gross P&L (%)",
@@ -1176,21 +1171,6 @@ if not df.empty:
                 if col == "Type" and val in ["DELIVERY", "INTRADAY"]:
                     val = f"<span style='font-size:0.8em; padding:2px 5px; border-radius:3px; background-color:#1E293B; color:#A1A1AA;'>{val}</span>"
 
-                elif col == "Day's Gain/Loss" and isinstance(val, (int, float)):
-                    color = (
-                        APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-                        if val >= 0
-                        else APP_CONFIG["COLORS"]["LOSS_RED"]
-                    )
-                    sign_val = "+" if val >= 0 else ""
-                    
-                    if not is_summary:
-                        pct = df_table.loc[idx, "Day's Gain/Loss (%)"]
-                        val = f"{sign_val}₹{val:,.2f} ({sign_val}{pct:.2f}%)"
-                    else:
-                        val = f"{sign_val}₹{val:,.2f}"
-                    cell_style = f"color: {color}; font-weight: bold;"
-
                 elif col in ["Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
                     color = (
                         APP_CONFIG["COLORS"]["PROFIT_GREEN"]
@@ -1248,7 +1228,7 @@ if not df.empty:
 
         with st.expander("📋 Main Portfolio Table", expanded=True):
             st.markdown(full_html_table, unsafe_allow_html=True)
-
+            
 # --- STREAMLINED EOD JOURNAL EXPORT ---
 if not df.empty:
     st.sidebar.divider()
