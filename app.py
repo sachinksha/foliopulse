@@ -11,6 +11,8 @@ import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 
+from expense_calculator import compute_trade_expenses_detailed
+
 # =========================================================
 # CENTRALIZED CONFIG: LABELS, COLORS, AND THEME CONSTANTS
 # =========================================================
@@ -187,51 +189,6 @@ if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
 
 # --- ZERODHA EXPENSE ENGINE ---
-def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"):
-    if qty <= 0 or buy_price <= 0:
-        return {
-            "contract_note_charges": 0.0,
-            "dp_charges": 0.0,
-            "total_expenses": 0.0,
-            "breakeven_price": buy_price
-        }
-
-    buy_turnover = qty * buy_price
-    sell_turnover = qty * sell_price
-    total_turnover = buy_turnover + sell_turnover
-    trade_type = trade_type.upper().strip()
-
-    if trade_type == "INTRADAY":
-        brokerage = min(20.0, buy_turnover * 0.0003) + min(20.0, sell_turnover * 0.0003)
-        stt = math.floor(sell_turnover * 0.00025 + 0.5)
-        stamp_duty = buy_turnover * 0.00003
-        exchange_fee = total_turnover * 0.0000307
-        sebi_fee = total_turnover * 0.000001
-        gst = (brokerage + exchange_fee + sebi_fee) * 0.18
-
-        contract_note_levies = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + gst
-        dp_charges = 0.00
-
-    else:
-        brokerage = 0.01
-        stt = math.floor((buy_turnover * 0.001) + (sell_turnover * 0.001) + 0.5)
-        stamp_duty = buy_turnover * 0.00015
-        exchange_fee = total_turnover * 0.0000307
-        sebi_fee = total_turnover * 0.000001
-        gst = (brokerage + exchange_fee + sebi_fee) * 0.18
-
-        contract_note_levies = brokerage + stt + stamp_duty + exchange_fee + sebi_fee + gst
-        dp_charges = 13.00 * 1.18
-
-    total_expenses = contract_note_levies + dp_charges
-    breakeven_price = buy_price + (total_expenses / qty)
-
-    return {
-        "contract_note_charges": round(contract_note_levies, 2),
-        "dp_charges": round(dp_charges, 2),
-        "total_expenses": round(total_expenses, 2),
-        "breakeven_price": round(breakeven_price, 2)
-    }
 
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
