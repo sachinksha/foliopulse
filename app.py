@@ -1450,19 +1450,23 @@ def create_candlestick_chart(row):
             yanchor="middle",
         )
 
-    if auto_zoom_risk_range and sl_val > 0 and row.get(lbl_t2, 0) > 0:
-        min_bound = sl_val * 0.98
-        max_bound = float(row[lbl_t2]) * 1.02
+    target_val = float(row.get(lbl_t2, 0.0)) if float(row.get(lbl_t2, 0.0)) > 0 else float(row.get(lbl_t1, 0.0))
+
+    if auto_zoom_risk_range and sl_val > 0 and target_val > 0:
+        # If LTP drops below Stop-Loss, adjust lower bound to LTP with a 2% buffer
+        lower_bound_ref = ltp_val if (ltp_val > 0 and ltp_val < sl_val) else sl_val
+        min_bound = lower_bound_ref * 0.98
+        max_bound = target_val * 1.02
     else:
         min_bound = (
-            min(df_10d["Low"].min(), sl_val)
+            min(df_10d["Low"].min(), sl_val if sl_val > 0 else ltp_val, ltp_val)
             if isinstance(df_10d, pd.DataFrame) and not df_10d.empty
-            else sl_val
+            else ltp_val * 0.98
         )
         max_bound = (
-            max(df_10d["High"].max(), float(row.get(lbl_t2, 0)))
+            max(df_10d["High"].max(), target_val if target_val > 0 else ltp_val, ltp_val)
             if isinstance(df_10d, pd.DataFrame) and not df_10d.empty
-            else float(row.get(lbl_t2, 0))
+            else ltp_val * 1.02
         )
 
     fig.update_layout(
