@@ -6,3 +6,4 @@ pandas
 plotly
 pytz
 streamlit-autorefresh
+grpcio>=1.75.1
