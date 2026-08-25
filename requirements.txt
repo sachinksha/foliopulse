@@ -8,3 +8,5 @@ pytz
 streamlit-autorefresh
 grpcio>=1.75.1
 protobuf<7
+google-api-core<2.35.0
+google-cloud-firestore<2.20.0
