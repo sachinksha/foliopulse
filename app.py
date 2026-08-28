@@ -750,11 +750,12 @@ def fetch_portfolio_data(watchlist, use_manual_override):
             ltp = manual_ltp
             status = "🟡 Manual"
             cached = st.session_state.stock_cache.get(sym, {})
-            prev_close = cached.get("prev_close", buy_price)
+            prev_close = cached.get("prev_close", buy_price) or 0.0
             df_10d = cached.get("df_10d", pd.DataFrame())
         else:
             try:
                 ltp, prev_close, df_10d = get_10day_history(sym)
+                prev_close = prev_close or 0.0
                 status = "🟢 Live"
                 st.session_state.stock_cache[sym] = {
                     "ltp": ltp,
@@ -764,7 +765,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
             except Exception as err:
                 cached = st.session_state.stock_cache.get(sym, {})
                 ltp = cached.get("ltp", buy_price)
-                prev_close = cached.get("prev_close", buy_price)
+                prev_close = cached.get("prev_close", buy_price) or 0.0
                 df_10d = cached.get("df_10d", pd.DataFrame())
                 status = "🔴 Stale"
                 fetch_errors.append(f"**{sym}**: {err}")
