@@ -11,7 +11,7 @@ import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 
-from expense_calculator import compute_trade_expenses_detailed
+from expense_calculator import compute_trade_expenses_detailed, price_for_target_net_pnl_pct
 
 # =========================================================
 # CENTRALIZED CONFIG: LABELS, COLORS, AND THEME CONSTANTS
@@ -26,6 +26,7 @@ APP_CONFIG = {
         "LTP": "LIVE LTP",
         "T1": "TARGET 1",
         "T2": "TARGET 2",
+        "BREAKEVEN": "BREAK-EVEN",
         "SUMMARY_WIN": "🟢 TOTAL PROFITS",
         "SUMMARY_LOSS": "🔴 TOTAL LOSSES",
         "SUMMARY_NET": "💼 NET TOTAL",
@@ -35,6 +36,7 @@ APP_CONFIG = {
         "LOSS_RED": "#FF2B2B",
         "SL_ORANGE": "#FF872B",
         "TSL_YELLOW": "#77671F",
+        "BREAKEVEN_GRAY": "#94A3B8",
         "BUY_BLUE": "#1F77B4",
         "LTP_RED": "#FF0000",
         "BG_DARK": "#0E1117",
@@ -521,18 +523,45 @@ def open_watchlist_manager():
             st.warning("No ticker results found. Enter ticker manually below.")
             selected_symbol = search_query.upper().strip()
 
+    # Trade Type / Buy Price / Quantity live OUTSIDE the form (below) so this
+    # page reruns as they're edited, letting the breakeven / suggested
+    # stop-loss / suggested target preview update before the script is added.
+    ac1, ac2, ac3, ac4 = st.columns(4)
+    add_type = ac1.selectbox("Trade Type", options=["DELIVERY", "INTRADAY"], index=0, key="add_script_type")
+    add_buy = ac2.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0, key="add_script_buy")
+    add_qty = ac3.number_input("Quantity", min_value=1, value=10, step=1, key="add_script_qty")
+    add_mltp = ac4.number_input("Manual LTP (₹)", min_value=0.0, step=1.0, key="add_script_mltp")
+
+    suggested_sl = price_for_target_net_pnl_pct(int(add_qty), float(add_buy), -2, add_type)
+    suggested_t1 = price_for_target_net_pnl_pct(int(add_qty), float(add_buy), 5, add_type)
+    preview_breakeven = compute_trade_expenses_detailed(int(add_qty), float(add_buy), float(add_buy), add_type)["breakeven_price"]
+
+    if add_buy > 0:
+        st.caption(
+            f"📍 Break-even: **₹{preview_breakeven:,.2f}** &nbsp;|&nbsp; "
+            f"Suggested {APP_CONFIG['LABELS']['SL']} (−2% net): **₹{suggested_sl:,.2f}** &nbsp;|&nbsp; "
+            f"Suggested {APP_CONFIG['LABELS']['T1']} (+5% net): **₹{suggested_t1:,.2f}**",
+            unsafe_allow_html=True,
+        )
+
+    # Re-keying on buy/qty/type makes these widgets re-default to the fresh
+    # suggestion whenever those inputs change, while still leaving the value
+    # freely editable by hand before submitting.
+    suggestion_key_suffix = f"{add_type}_{add_buy}_{add_qty}"
+
     with st.form("add_script_form"):
         add_sym = st.text_input("Ticker Symbol", value=selected_symbol)
-        ac1, ac2, ac3, ac4 = st.columns(4)
-        add_type = ac1.selectbox("Trade Type", options=["DELIVERY", "INTRADAY"], index=0)
-        add_buy = ac2.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0)
-        add_qty = ac3.number_input("Quantity", min_value=1, value=10, step=1)
-        add_mltp = ac4.number_input("Manual LTP (₹)", min_value=0.0, step=1.0)
 
         rc1, rc2, rc3, rc4 = st.columns(4)
-        add_sl = rc1.number_input(f"{APP_CONFIG['LABELS']['SL']} (₹)", min_value=0.0, step=1.0)
+        add_sl = rc1.number_input(
+            f"{APP_CONFIG['LABELS']['SL']} (₹)", min_value=0.0, step=1.0,
+            value=suggested_sl, key=f"add_sl_{suggestion_key_suffix}",
+        )
         add_tsl = rc2.number_input(f"{APP_CONFIG['LABELS']['TSL']} (₹)", min_value=0.0, step=1.0)
-        add_t1 = rc3.number_input(f"{APP_CONFIG['LABELS']['T1']} (₹)", min_value=0.0, step=1.0)
+        add_t1 = rc3.number_input(
+            f"{APP_CONFIG['LABELS']['T1']} (₹)", min_value=0.0, step=1.0,
+            value=suggested_t1, key=f"add_t1_{suggestion_key_suffix}",
+        )
         add_t2 = rc4.number_input(f"{APP_CONFIG['LABELS']['T2']} (₹)", min_value=0.0, step=1.0)
 
         submitted = st.form_submit_button("➕ Add Script to Watchlist", type="primary")
@@ -1222,6 +1251,17 @@ if st.sidebar.button("🔄 Force Data Refresh", type="secondary", use_container_
     st.rerun()
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
+def _format_chart_date_label(date_str):
+    """Reformats a 'YYYY-MM-DD' index string into a 'DD Mon' display label
+    (no year) for chart x-axis ticks. The underlying 'YYYY-MM-DD' index
+    values are left untouched everywhere else, since sorting / de-dup /
+    date-membership checks elsewhere in this app rely on that exact format."""
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d %b")
+    except (ValueError, TypeError):
+        return date_str
+
+
 def create_candlestick_chart(row):
     df_10d = row.get("df_10d")
 
@@ -1260,6 +1300,10 @@ def create_candlestick_chart(row):
 
     invested = buy_val * qty
 
+    # Breakeven is priced off buy price / qty / expenses only (not LTP), so it
+    # stays a stable reference line rather than shifting on every price tick.
+    breakeven_val = compute_trade_expenses_detailed(qty, buy_val, buy_val, trade_type)["breakeven_price"]
+
     ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type)
     ltp_net_pnl = ((ltp_val * qty) - invested) - ltp_exp_details["total_expenses"]
     ltp_net_pct = (ltp_net_pnl / invested * 100) if invested > 0 else 0.0
@@ -1295,6 +1339,13 @@ def create_candlestick_chart(row):
             "color": APP_CONFIG["COLORS"]["BUY_BLUE"],
             "dash": "solid",
             "width": 2.0,
+        },
+        {
+            "name": APP_CONFIG["LABELS"]["BREAKEVEN"],
+            "val": breakeven_val,
+            "color": APP_CONFIG["COLORS"]["BREAKEVEN_GRAY"],
+            "dash": "dash",
+            "width": 1.5,
         },
         {
             "name": lbl_t1,
@@ -1342,6 +1393,10 @@ def create_candlestick_chart(row):
 
     # Detect if Buy and LTP values are very close (< 1.5% difference)
     prices_are_close = buy_val > 0 and abs(ltp_val - buy_val) / buy_val < 0.015
+    # Breakeven sits buy_val + (expenses / qty), so it's almost always close to
+    # Buy on the price axis -- flag it the same way so their badges can be
+    # pushed apart instead of stacking on top of each other.
+    breakeven_close_to_buy = buy_val > 0 and abs(breakeven_val - buy_val) / buy_val < 0.025
 
     # Draw horizontal guide lines
     for item in horizontal_levels:
@@ -1361,12 +1416,20 @@ def create_candlestick_chart(row):
         if item["name"] == lbl_ltp:
             continue
 
+        y_shift_buy = 0
+
         if item["name"] == lbl_buy:
             badge_text = f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>BUY: {qty} Qty @ ₹{buy_val:,.2f}</b></span> "
             border_c = APP_CONFIG["COLORS"]["BUY_BLUE"]
             text_c = APP_CONFIG["COLORS"]["BUY_BLUE"]
-            # If prices are very close, anchor Buy slightly lower to avoid collision
-            y_anchor_buy = "top" if prices_are_close else "middle"
+            # If Buy collides with LTP and/or Breakeven, anchor it from the top
+            # so its label renders below the line, away from whichever
+            # neighbor(s) it's close to (both sit at or above Buy on the axis).
+            if prices_are_close or breakeven_close_to_buy:
+                y_anchor_buy = "top"
+                y_shift_buy = -4
+            else:
+                y_anchor_buy = "middle"
         else:
             level_exp_details = compute_trade_expenses_detailed(qty, buy_val, item["val"], trade_type)
             level_gross_pnl = (item["val"] - buy_val) * qty
@@ -1386,7 +1449,14 @@ def create_candlestick_chart(row):
             )
             border_c = item["color"]
             text_c = item["color"]
-            y_anchor_buy = "middle"
+
+            if item["name"] == APP_CONFIG["LABELS"]["BREAKEVEN"] and breakeven_close_to_buy:
+                # Breakeven is always >= Buy, so hug upward -- away from Buy's
+                # line, which sits at or just below it.
+                y_anchor_buy = "bottom"
+                y_shift_buy = 4
+            else:
+                y_anchor_buy = "middle"
 
         fig.add_annotation(
             x=left_anchor_date,
@@ -1399,6 +1469,7 @@ def create_candlestick_chart(row):
             borderwidth=1.5,
             borderpad=3,
             yanchor=y_anchor_buy,
+            yshift=y_shift_buy,
             xanchor="left",
         )
 
@@ -1411,7 +1482,8 @@ def create_candlestick_chart(row):
             font=dict(color="#FFFFFF", size=c_badge_size),
             bgcolor=item["color"],
             xanchor="left",
-            yanchor="middle",
+            yanchor=y_anchor_buy,
+            yshift=y_shift_buy,
         )
 
     # COLUMN 2 (dates[2]): Live LTP Badge shifted right with anti-overlap vertical alignment
@@ -1477,6 +1549,8 @@ def create_candlestick_chart(row):
         ),
         xaxis=dict(
             type="category",
+            tickvals=dates,
+            ticktext=[_format_chart_date_label(d) for d in dates],
             rangeslider=dict(visible=False),
             tickfont=dict(size=c_axis_size),
             showline=True,

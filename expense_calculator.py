@@ -80,3 +80,33 @@ def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: floa
         "total_expenses": _round_two_decimals(total_expenses),
         "breakeven_price": _round_two_decimals(breakeven_price),
     }
+
+
+def price_for_target_net_pnl_pct(qty: int, buy_price: float, target_pct: float, trade_type: str = "DELIVERY") -> float:
+    """
+    Returns the sell price at which net P&L (after all expenses) would equal
+    `target_pct` percent of the invested capital (qty * buy_price).
+
+    Pass a negative target_pct for a stop-loss price (e.g. -2 for a 2% net
+    loss) and a positive target_pct for a target price (e.g. 5 for a 5% net
+    gain).
+
+    Sell-side expenses depend on the sell price itself, so this estimates
+    them once using a naive price guess (buy_price shifted by target_pct)
+    rather than solving iteratively -- the same approximation
+    compute_trade_expenses_detailed's own breakeven_price already relies on.
+    The resulting error is negligible (a few paise) for stop-loss/target
+    style price bands, since sell-side charges are a small percentage of
+    trade value. At target_pct=0 this returns exactly the same price as
+    breakeven_price.
+    """
+    if qty <= 0 or buy_price <= 0:
+        return round(buy_price, 2)
+
+    invested = qty * buy_price
+    naive_price = buy_price * (1 + target_pct / 100)
+    exp = compute_trade_expenses_detailed(qty, buy_price, naive_price, trade_type)
+
+    target_net_pnl = (target_pct / 100) * invested
+    price = buy_price + (target_net_pnl + exp["total_expenses"]) / qty
+    return _round_two_decimals(price)
