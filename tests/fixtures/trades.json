@@ -1,0 +1,31 @@
+[
+  {
+    "name": "Single Leg Delivery - Asian Paint",
+    "qty": 270,
+    "buy_price": 2857.56,
+    "sell_price": 2695.02,
+    "trade_type": "DELIVERY",
+    "expected": {
+      "stt": 1500.00,
+      "stamp_duty": 116.00,
+      "dp_charges": 15.34,
+      "total_expenses": 1687.42,
+      "net_pnl": -45573.22
+    }
+  },
+  {
+    "name": "Intraday Roundtrip - TVS Motor",
+    "qty": 339,
+    "buy_price": 4255.00,
+    "sell_price": 4321.00,
+    "trade_type": "INTRADAY",
+    "expected": {
+      "brokerage": 40.00,
+      "stamp_duty": 43.00,
+      "stt": 366.00,
+      "dp_charges": 0.00,
+      "total_expenses": 564.95,
+      "net_pnl": 21809.05
+    }
+  }
+]

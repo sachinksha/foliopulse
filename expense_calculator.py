@@ -1,112 +1,142 @@
 import math
 
-DELIVERY_CONFIG = {
-    "brokerageFlat": 0.01,
-    "brokeragePercentage": 0,
-    "brokerageMax": 0,
-    "sttPercentage": 0.001,
-    "txnChargePercentage": 0.0000307,
-    "sebiChargePercentage": 0.000001,
-    "stampDutyPercentage": 0.00015,
-    "gstPercentage": 0.18,
-    "dpCharge": 15.34,
-}
 
-INTRADAY_CONFIG = {
-    "brokerageFlat": 0,
-    "brokeragePercentage": 0.0003,
-    "brokerageMax": 20,
-    "sttPercentage": 0.00025,
-    "txnChargePercentage": 0.0000307,
-    "sebiChargePercentage": 0.000001,
-    "stampDutyPercentage": 0.00003,
-    "gstPercentage": 0.18,
-    "dpCharge": 0,
-}
-
-
-def _round_nearest_rupee(value: float) -> int:
-    return math.floor(value + 0.5)
+def _round_nearest_rupee(value: float) -> float:
+    return float(round(value))
 
 
 def _round_two_decimals(value: float) -> float:
     return round(value + 1e-9, 2)
 
 
-def _calculate_leg_expenses(value: float, config: dict, is_buy: bool, is_intraday: bool) -> float:
-    if is_intraday:
-        brokerage = min(config["brokerageMax"], value * config["brokeragePercentage"])
-    else:
-        brokerage = config["brokerageFlat"] if is_buy else 0
-
-    stamp_duty = _round_nearest_rupee(value * config["stampDutyPercentage"]) if is_buy else 0
-    sebi = value * config["sebiChargePercentage"]
-
-    if is_intraday:
-        stt = _round_nearest_rupee(value * config["sttPercentage"]) if not is_buy else 0
-    else:
-        stt = _round_nearest_rupee(value * config["sttPercentage"])
-
-    txn = value * config["txnChargePercentage"]
-    gst = (brokerage + txn + sebi) * config["gstPercentage"]
-    return brokerage + stamp_duty + sebi + stt + txn + gst
-
-
-def compute_trade_expenses_detailed(qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY") -> dict:
+def compute_trade_expenses_detailed(
+    qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"
+) -> dict:
     if qty <= 0 or buy_price <= 0:
         return {
+            "brokerage": 0.0,
+            "stamp_duty": 0.0,
+            "stt": 0.0,
+            "sebi_fee": 0.0,
+            "txn_charges": 0.0,
+            "gst": 0.0,
             "contract_note_charges": 0.0,
             "dp_charges": 0.0,
             "total_expenses": 0.0,
-            "breakeven_price": round(buy_price, 2)
+            "breakeven_price": round(buy_price, 2),
+            "gross_pnl": 0.0,
+            "net_pnl": 0.0,
         }
 
-    config = INTRADAY_CONFIG if trade_type.upper().strip() == "INTRADAY" else DELIVERY_CONFIG
-    buy_value = qty * buy_price
-    sell_value = qty * sell_price
+    qty = abs(int(qty))
+    buy_price = float(buy_price)
+    sell_price = float(sell_price)
+    is_intraday = trade_type.upper().strip() == "INTRADAY"
 
-    buy_expenses = _calculate_leg_expenses(buy_value, config, is_buy=True, is_intraday=(trade_type.upper().strip() == "INTRADAY"))
-    sell_expenses = _calculate_leg_expenses(sell_value, config, is_buy=False, is_intraday=(trade_type.upper().strip() == "INTRADAY"))
+    buy_turnover = round(qty * buy_price, 2)
+    sell_turnover = round(qty * sell_price, 2)
 
-    contract_note_levies = buy_expenses + sell_expenses
-    dp_charges = 0.0 if trade_type.upper().strip() == "INTRADAY" else config["dpCharge"]
-    # Delivery DP charge applies only on the sell leg and is already GST-inclusive (₹13 + 18% GST = ₹15.34).
-    total_expenses = contract_note_levies + dp_charges
-    breakeven_price = buy_price + (total_expenses / qty)
+    # --- BUY LEG ---
+    if is_intraday:
+        b_buy = min(20.0, buy_turnover * 0.0003)
+        stamp_duty_buy = _round_nearest_rupee(buy_turnover * 0.00003)
+        stt_buy = 0.0
+    else:  # DELIVERY
+        b_buy = 0.0
+        stamp_duty_buy = _round_nearest_rupee(buy_turnover * 0.00015)
+        stt_buy = _round_nearest_rupee(buy_turnover * 0.001)
+
+    sebi_buy = buy_turnover * 0.000001
+    txn_buy = buy_turnover * 0.0000307
+    gst_buy = (b_buy + txn_buy + sebi_buy) * 0.18
+
+    # --- SELL LEG ---
+    if is_intraday:
+        b_sell = min(20.0, sell_turnover * 0.0003)
+        stamp_duty_sell = 0.0
+        stt_sell = _round_nearest_rupee(sell_turnover * 0.00025)
+    else:  # DELIVERY
+        b_sell = 0.0
+        stamp_duty_sell = 0.0
+        stt_sell = _round_nearest_rupee(sell_turnover * 0.001)
+
+    sebi_sell = sell_turnover * 0.000001
+    txn_sell = sell_turnover * 0.0000307
+    gst_sell = (b_sell + txn_sell + sebi_sell) * 0.18
+
+    # Aggregations
+    brokerage = b_buy + b_sell
+    stamp_duty = stamp_duty_buy + stamp_duty_sell
+    stt = stt_buy + stt_sell
+    sebi_fee = sebi_buy + sebi_sell
+    txn_charges = txn_buy + txn_sell
+    gst = gst_buy + gst_sell
+
+    contract_note_charges = brokerage + stamp_duty + stt + sebi_fee + txn_charges + gst
+    dp_charges = 0.0 if is_intraday else 15.34
+    total_expenses = contract_note_charges + dp_charges
+
+    gross_pnl = sell_turnover - buy_turnover
+    net_pnl = gross_pnl - total_expenses
+
+    # Compute exact dynamic breakeven price matching target_pct=0 solver
+    be_price = buy_price
+    for _ in range(5):
+        s_turn = qty * be_price
+        if is_intraday:
+            b_s = min(20.0, s_turn * 0.0003)
+            stt_s = _round_nearest_rupee(s_turn * 0.00025)
+        else:
+            b_s = 0.0
+            stt_s = _round_nearest_rupee(s_turn * 0.001)
+        sebi_s = s_turn * 0.000001
+        txn_s = s_turn * 0.0000307
+        gst_s = (b_s + txn_s + sebi_s) * 0.18
+        tot_exp_be = (b_buy + stamp_duty_buy + sebi_buy + stt_buy + txn_buy + gst_buy) + \
+                     (b_s + stt_s + sebi_s + txn_s + gst_s) + dp_charges
+        be_price = buy_price + (tot_exp_be / qty)
 
     return {
-        "contract_note_charges": _round_two_decimals(contract_note_levies),
+        "brokerage": _round_two_decimals(brokerage),
+        "stamp_duty": _round_two_decimals(stamp_duty),
+        "stt": _round_two_decimals(stt),
+        "sebi_fee": _round_two_decimals(sebi_fee),
+        "txn_charges": _round_two_decimals(txn_charges),
+        "gst": _round_two_decimals(gst),
+        "contract_note_charges": _round_two_decimals(contract_note_charges),
         "dp_charges": _round_two_decimals(dp_charges),
         "total_expenses": _round_two_decimals(total_expenses),
-        "breakeven_price": _round_two_decimals(breakeven_price),
+        "breakeven_price": _round_two_decimals(be_price),
+        "gross_pnl": _round_two_decimals(gross_pnl),
+        "net_pnl": _round_two_decimals(net_pnl),
     }
 
+def price_for_target_net_pnl_pct(
+    qty: int,
+    buy_price: float,
+    target_net_pct: float = 0.0,
+    trade_type: str = "DELIVERY",
+    **kwargs
+) -> float:
+    """Calculates target sell price required to achieve a desired net P&L percentage after trade expenses."""
+    if "target_pct" in kwargs:
+        target_net_pct = float(kwargs["target_pct"])
 
-def price_for_target_net_pnl_pct(qty: int, buy_price: float, target_pct: float, trade_type: str = "DELIVERY") -> float:
-    """
-    Returns the sell price at which net P&L (after all expenses) would equal
-    `target_pct` percent of the invested capital (qty * buy_price).
-
-    Pass a negative target_pct for a stop-loss price (e.g. -2 for a 2% net
-    loss) and a positive target_pct for a target price (e.g. 5 for a 5% net
-    gain).
-
-    Sell-side expenses depend on the sell price itself, so this estimates
-    them once using a naive price guess (buy_price shifted by target_pct)
-    rather than solving iteratively -- the same approximation
-    compute_trade_expenses_detailed's own breakeven_price already relies on.
-    The resulting error is negligible (a few paise) for stop-loss/target
-    style price bands, since sell-side charges are a small percentage of
-    trade value. At target_pct=0 this returns exactly the same price as
-    breakeven_price.
-    """
     if qty <= 0 or buy_price <= 0:
         return round(buy_price, 2)
 
-    invested = qty * buy_price
-    naive_price = buy_price * (1 + target_pct / 100)
-    exp = compute_trade_expenses_detailed(qty, buy_price, naive_price, trade_type)
+    sell_price = buy_price * (1.0 + (target_net_pct / 100.0))
 
-    target_net_pnl = (target_pct / 100) * invested
-    price = buy_price + (target_net_pnl + exp["total_expenses"]) / qty
-    return _round_two_decimals(price)
+    # Iterative convergence for exact target price inclusive of expenses
+    for _ in range(10):
+        exp = compute_trade_expenses_detailed(qty, buy_price, sell_price, trade_type)
+        gross_pnl = (sell_price - buy_price) * qty
+        current_net_pct = ((gross_pnl - exp["total_expenses"]) / (buy_price * qty)) * 100.0
+        diff = target_net_pct - current_net_pct
+
+        if abs(diff) < 1e-4:
+            break
+
+        sell_price += (diff / 100.0) * buy_price
+
+    return round(sell_price, 2)

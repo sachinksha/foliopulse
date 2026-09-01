@@ -190,8 +190,6 @@ def save_config(config_dict):
 if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
 
-# --- ZERODHA EXPENSE ENGINE ---
-
 # --- COMPACT INR FORMATTER ---
 def format_compact_inr(val):
     if val is None or not isinstance(val, (int, float)):
@@ -523,9 +521,6 @@ def open_watchlist_manager():
             st.warning("No ticker results found. Enter ticker manually below.")
             selected_symbol = search_query.upper().strip()
 
-    # Trade Type / Buy Price / Quantity live OUTSIDE the form (below) so this
-    # page reruns as they're edited, letting the breakeven / suggested
-    # stop-loss / suggested target preview update before the script is added.
     ac1, ac2, ac3, ac4 = st.columns(4)
     add_type = ac1.selectbox("Trade Type", options=["DELIVERY", "INTRADAY"], index=0, key="add_script_type")
     add_buy = ac2.number_input("Avg Buy Price (₹)", min_value=0.0, step=1.0, key="add_script_buy")
@@ -544,9 +539,6 @@ def open_watchlist_manager():
             unsafe_allow_html=True,
         )
 
-    # Re-keying on buy/qty/type makes these widgets re-default to the fresh
-    # suggestion whenever those inputs change, while still leaving the value
-    # freely editable by hand before submitting.
     suggestion_key_suffix = f"{add_type}_{add_buy}_{add_qty}"
 
     with st.form("add_script_form"):
@@ -688,11 +680,9 @@ def get_10day_history(sym):
 
     df_daily.index = df_daily.index.strftime("%Y-%m-%d")
 
-    # Multi-tier price resolution to prevent silent stale price fallbacks
     ltp = None
     prev_close = None
 
-    # Tier 1: Fast Info
     try:
         fast_info = ticker_obj.fast_info
         ltp = round(float(fast_info.last_price), 2)
@@ -700,7 +690,6 @@ def get_10day_history(sym):
     except Exception:
         pass
 
-    # Tier 2: Recent Close Price from Daily History
     if ltp is None or ltp <= 0:
         if len(df_daily) > 0:
             ltp = round(float(df_daily["Close"].iloc[-1]), 2)
@@ -857,13 +846,11 @@ df, error_logs = fetch_portfolio_data(
 india_tz = pytz.timezone("Asia/Kolkata")
 last_fetched_time = datetime.now(india_tz).strftime("%I:%M:%S %p IST")
 
-# Detect if any symbol is running on stale/cached data
 stale_symbols = [
     row["Symbol"] for _, row in df.iterrows() 
     if row.get("Status") == "🔴 Stale"
 ] if not df.empty else []
 
-# 1. Global Callout Banner if Data is Stale
 if stale_symbols:
     st.error(
         f"⚠️ **STALE DATA WARNING**: Live market data fetch failed for **{', '.join(stale_symbols)}**. "
@@ -873,7 +860,6 @@ if stale_symbols:
 elif error_logs:
     st.warning(f"⚠️ **Market Fetch Notice**: {'; '.join(error_logs)}")
 
-# 2. Market Status Line with Exact Timestamp Marker
 if manual_override_active:
     st.warning("🟡 **Manual Override Active**: Live price polling is paused. Adjust prices in the sidebar.")
 elif market_is_open:
@@ -889,17 +875,16 @@ else:
         f"Background auto-refresh paused."
     )
 
-
 if df.empty:
     st.info("📋 **Your Watchlist is currently empty.** Click **'⚙️ Manage Watchlist & Reorder'** in the sidebar to add your first stock!")
 
-# --- TOP STATS & MARKET INDICES HEADER ROW ---
+# --- TOP STATS & MARKET INDICES HEADER ROW (AGGREGATE UNROUNDED VALUES FIRST) ---
 tot_invested = df["Raw_Invested"].sum() if "Raw_Invested" in df.columns else 0.0
 tot_current = df["Raw_Current"].sum() if "Raw_Current" in df.columns else 0.0
-tot_expenses = df["Raw_Expenses"].sum() if "Raw_Expenses" in df.columns else 0.0
+tot_expenses = round(df["Raw_Expenses"].sum(), 2) if "Raw_Expenses" in df.columns else 0.0
 
 tot_gross_pnl = tot_current - tot_invested
-tot_net_pnl = df["Raw_NetPnL"].sum() if "Raw_NetPnL" in df.columns else 0.0
+tot_net_pnl = round(df["Raw_NetPnL"].sum(), 2) if "Raw_NetPnL" in df.columns else 0.0
 tot_net_pnl_pct = (tot_net_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
 
 border_color = (
@@ -916,7 +901,6 @@ top_col1, top_col2 = st.columns([1.4, 1.0])
 
 with top_col1:
     if st.session_state.is_pnl_detached:
-        # DETACHED STATE: Show ONLY Total Invested card in header
         s1, = st.columns(1)
         s1.markdown(
             f"""
@@ -928,7 +912,6 @@ with top_col1:
             unsafe_allow_html=True,
         )
     else:
-        # ATTACHED STATE: Show Net P&L (with Detach Button) + Net Return + Total Invested
         s1, s2, s3 = st.columns(3)
         
         with s1:
@@ -1022,7 +1005,7 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
+            "Expenses (₹)": round(winning_df["Raw_Expenses"].sum(), 2),
             "Gross P&L (₹)": win_gross,
             "Gross P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
             "Net P&L (₹)": win_net,
@@ -1042,7 +1025,7 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
+            "Expenses (₹)": round(losing_df["Raw_Expenses"].sum(), 2),
             "Gross P&L (₹)": loss_gross,
             "Gross P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
             "Net P&L (₹)": loss_net,
@@ -1070,7 +1053,6 @@ if not df.empty:
         },
     ]
 
-    # Safely create df_table based on current preset
     if st.session_state.table_view_preset == "📋 Full Detail View":
         df_table = pd.concat([df, pd.DataFrame(totals_rows)], ignore_index=True)
     else:
@@ -1252,10 +1234,6 @@ if st.sidebar.button("🔄 Force Data Refresh", type="secondary", use_container_
 
 # --- 10-DAY CANDLESTICK CHART ENGINE ---
 def _format_chart_date_label(date_str):
-    """Reformats a 'YYYY-MM-DD' index string into a 'DD Mon' display label
-    (no year) for chart x-axis ticks. The underlying 'YYYY-MM-DD' index
-    values are left untouched everywhere else, since sorting / de-dup /
-    date-membership checks elsewhere in this app rely on that exact format."""
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d %b")
     except (ValueError, TypeError):
@@ -1300,8 +1278,6 @@ def create_candlestick_chart(row):
 
     invested = buy_val * qty
 
-    # Breakeven is priced off buy price / qty / expenses only (not LTP), so it
-    # stays a stable reference line rather than shifting on every price tick.
     breakeven_val = compute_trade_expenses_detailed(qty, buy_val, buy_val, trade_type)["breakeven_price"]
 
     ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type)
@@ -1380,10 +1356,8 @@ def create_candlestick_chart(row):
             continue
         horizontal_levels.append(item)
 
-    # --- ANCHOR DATES ---
     num_dates = len(dates)
     left_anchor_date = dates[0]
-    # Move LTP further right to dates[2] (or dates[3] if available) to avoid overlap with Buy
     ltp_anchor_index = min(2, num_dates - 1) if num_dates > 2 else (1 if num_dates > 1 else 0)
     ltp_anchor_date = dates[ltp_anchor_index]
 
@@ -1391,14 +1365,9 @@ def create_candlestick_chart(row):
     c_badge_size = int(11 * fs_chart)
     c_axis_size = int(11 * fs_chart)
 
-    # Detect if Buy and LTP values are very close (< 1.5% difference)
     prices_are_close = buy_val > 0 and abs(ltp_val - buy_val) / buy_val < 0.015
-    # Breakeven sits buy_val + (expenses / qty), so it's almost always close to
-    # Buy on the price axis -- flag it the same way so their badges can be
-    # pushed apart instead of stacking on top of each other.
     breakeven_close_to_buy = buy_val > 0 and abs(breakeven_val - buy_val) / buy_val < 0.025
 
-    # Draw horizontal guide lines
     for item in horizontal_levels:
         fig.add_trace(
             go.Scatter(
@@ -1411,7 +1380,6 @@ def create_candlestick_chart(row):
             )
         )
 
-    # COLUMN 1 (dates[0]): Buy Price, Targets (T1, T2), Stop-Losses (SL, TSL)
     for item in horizontal_levels:
         if item["name"] == lbl_ltp:
             continue
@@ -1422,9 +1390,6 @@ def create_candlestick_chart(row):
             badge_text = f" <span style='color:{APP_CONFIG['COLORS']['BUY_BLUE']};'><b>BUY: {qty} Qty @ ₹{buy_val:,.2f}</b></span> "
             border_c = APP_CONFIG["COLORS"]["BUY_BLUE"]
             text_c = APP_CONFIG["COLORS"]["BUY_BLUE"]
-            # If Buy collides with LTP and/or Breakeven, anchor it from the top
-            # so its label renders below the line, away from whichever
-            # neighbor(s) it's close to (both sit at or above Buy on the axis).
             if prices_are_close or breakeven_close_to_buy:
                 y_anchor_buy = "top"
                 y_shift_buy = -4
@@ -1451,8 +1416,6 @@ def create_candlestick_chart(row):
             text_c = item["color"]
 
             if item["name"] == APP_CONFIG["LABELS"]["BREAKEVEN"] and breakeven_close_to_buy:
-                # Breakeven is always >= Buy, so hug upward -- away from Buy's
-                # line, which sits at or just below it.
                 y_anchor_buy = "bottom"
                 y_shift_buy = 4
             else:
@@ -1486,7 +1449,6 @@ def create_candlestick_chart(row):
             yshift=y_shift_buy,
         )
 
-    # COLUMN 2 (dates[2]): Live LTP Badge shifted right with anti-overlap vertical alignment
     ltp_item = next((item for item in horizontal_levels if item["name"] == lbl_ltp), None)
     if ltp_item:
         badge_text_ltp = (
@@ -1494,7 +1456,6 @@ def create_candlestick_chart(row):
             f"<span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{ltp_net_pnl:,.2f} ({ltp_net_pct:+.1f}%)</b></span> "
         )
 
-        # If prices are close, float LTP slightly higher
         y_anchor_ltp = "bottom" if prices_are_close else "middle"
 
         fig.add_annotation(
@@ -1526,7 +1487,6 @@ def create_candlestick_chart(row):
     target_val = float(row.get(lbl_t2, 0.0)) if float(row.get(lbl_t2, 0.0)) > 0 else float(row.get(lbl_t1, 0.0))
 
     if auto_zoom_risk_range and sl_val > 0 and target_val > 0:
-        # If LTP drops below Stop-Loss, adjust lower bound to LTP with a 2% buffer
         lower_bound_ref = ltp_val if (ltp_val > 0 and ltp_val < sl_val) else sl_val
         min_bound = lower_bound_ref * 0.98
         max_bound = target_val * 1.02
@@ -1595,7 +1555,6 @@ if st.session_state.is_pnl_detached:
     st.markdown(
         f"""
         <style>
-            /* Force GPU layer promotion to stick to mobile Visual Viewport */
             .sticky-pnl-card-wrapper {{
                 position: fixed !important;
                 bottom: 24px !important;
