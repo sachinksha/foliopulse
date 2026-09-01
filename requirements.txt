@@ -2,7 +2,7 @@ setuptools
 google-api-core<2.35.0
 google-cloud-firestore>=2.15.0
 firebase-admin>=6.0.0
-streamlit
+streamlit[auth]
 pandas
 plotly
 pytz
