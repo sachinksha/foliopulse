@@ -191,7 +191,7 @@ if "stock_cache" not in st.session_state:
     st.session_state.stock_cache = {}
 
 # --- COMPACT INR FORMATTER ---
-def format_compact_inr(val):
+def format_compact_inr(val, decimals=0):
     if val is None or not isinstance(val, (int, float)):
         return "-"
     abs_val = abs(val)
@@ -205,7 +205,7 @@ def format_compact_inr(val):
     elif abs_val >= 1_000:
         return f"{sign}{sym}{abs_val / 1_000:.1f}{APP_CONFIG['UNITS']['THOUSAND']}"
     else:
-        return f"{sign}{sym}{abs_val:,.2f}"
+        return f"{sign}{sym}{abs_val:,.{decimals}f}"
 
 # --- INJECT DYNAMIC CSS ---
 st.markdown(
@@ -490,8 +490,8 @@ def open_watchlist_manager():
                 c_buy.markdown(f"₹{item['avg_buy_price']:,.2f}")
                 c_qty.markdown(f"{item['quantity']}")
                 c_risk.markdown(
-                    f"<small>{lbl_sl}: ₹{item.get('stop_loss',0)} | {lbl_tsl}: ₹{item.get('trailing_sl',0)}<br>"
-                    f"{lbl_t1}: ₹{item.get('target_1',0)} | {lbl_t2}: ₹{item.get('target_2',0)} | Manual: ₹{item.get('manual_ltp',0)}</small>",
+                    f"<small>{lbl_sl}: ₹{item.get('stop_loss',0):,.2f} | {lbl_tsl}: ₹{item.get('trailing_sl',0):,.2f}<br>"
+                    f"{lbl_t1}: ₹{item.get('target_1',0):,.2f} | {lbl_t2}: ₹{item.get('target_2',0):,.2f} | Manual: ₹{item.get('manual_ltp',0):,.2f}</small>",
                     unsafe_allow_html=True,
                 )
 
@@ -811,20 +811,20 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Status": status,
                 "Qty": qty,
                 "Avg Buy (₹)": buy_price,
-                "Invested (₹)": round(invested, 2),
+                "Invested (₹)": round(invested),
                 "LTP (₹)": ltp,
-                "Current Val (₹)": round(current, 2),
+                "Current Val (₹)": round(current),
                 "Weight (%)": round(weight_pct, 2),
                 lbl_sl: sl,
                 lbl_tsl: tsl,
                 lbl_t1: t1,
                 lbl_t2: t2,
-                "Day's Gain/Loss": round(day_pnl, 2),
+                "Day's Gain/Loss": round(day_pnl),
                 "Day's Gain/Loss (%)": round(day_pnl_pct, 2),
-                "Expenses (₹)": round(total_exp, 2),
-                "Gross P&L (₹)": round(gross_pnl, 2),
+                "Expenses (₹)": round(total_exp),
+                "Gross P&L (₹)": round(gross_pnl),
                 "Gross P&L (%)": round(gross_pnl_pct, 2),
-                "Net P&L (₹)": round(net_pnl, 2),
+                "Net P&L (₹)": round(net_pnl),
                 "Net P&L (%)": round(net_pnl_pct, 2),
                 "Raw_DayPnL": day_pnl,
                 "Raw_PnL": gross_pnl,
@@ -881,10 +881,10 @@ if df.empty:
 # --- TOP STATS & MARKET INDICES HEADER ROW (AGGREGATE UNROUNDED VALUES FIRST) ---
 tot_invested = df["Raw_Invested"].sum() if "Raw_Invested" in df.columns else 0.0
 tot_current = df["Raw_Current"].sum() if "Raw_Current" in df.columns else 0.0
-tot_expenses = round(df["Raw_Expenses"].sum(), 2) if "Raw_Expenses" in df.columns else 0.0
+tot_expenses = df["Raw_Expenses"].sum() if "Raw_Expenses" in df.columns else 0.0
 
 tot_gross_pnl = tot_current - tot_invested
-tot_net_pnl = round(df["Raw_NetPnL"].sum(), 2) if "Raw_NetPnL" in df.columns else 0.0
+tot_net_pnl = df["Raw_NetPnL"].sum() if "Raw_NetPnL" in df.columns else 0.0
 tot_net_pnl_pct = (tot_net_pnl / tot_invested * 100) if tot_invested > 0 else 0.0
 
 border_color = (
@@ -906,7 +906,7 @@ with top_col1:
             f"""
             <div class="stat-card" style="border-color: #30363D;">
                 <div class="stat-label">Total Invested</div>
-                <div class="stat-value">{format_compact_inr(tot_invested)}</div>
+                <div class="stat-value">{format_compact_inr(tot_invested, decimals=0)}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -922,7 +922,7 @@ with top_col1:
                         <div class="stat-label">Net P&L</div>
                         <a href="?toggle_pnl_float=true" target="_self" style="text-decoration: none; color: #9CA3AF; font-size: 0.8rem; border: 1px solid #374151; padding: 1px 5px; border-radius: 4px;" title="Detach to Bottom-Right">↗</a>
                     </div>
-                    <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_net_pnl)}</div>
+                    <div class="stat-value" style="color:{border_color};">{format_compact_inr(tot_net_pnl, decimals=0)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -944,7 +944,7 @@ with top_col1:
                 f"""
                 <div class="stat-card" style="border-color: #30363D;">
                     <div class="stat-label">Total Invested</div>
-                    <div class="stat-value">{format_compact_inr(tot_invested)}</div>
+                    <div class="stat-value">{format_compact_inr(tot_invested, decimals=0)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1005,7 +1005,7 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Expenses (₹)": round(winning_df["Raw_Expenses"].sum(), 2),
+            "Expenses (₹)": winning_df["Raw_Expenses"].sum(),
             "Gross P&L (₹)": win_gross,
             "Gross P&L (%)": (win_gross / win_invested * 100) if win_invested > 0 else 0.0,
             "Net P&L (₹)": win_net,
@@ -1025,7 +1025,7 @@ if not df.empty:
             lbl_tsl: None,
             lbl_t1: None,
             lbl_t2: None,
-            "Expenses (₹)": round(losing_df["Raw_Expenses"].sum(), 2),
+            "Expenses (₹)": losing_df["Raw_Expenses"].sum(),
             "Gross P&L (₹)": loss_gross,
             "Gross P&L (%)": (loss_gross / loss_invested * 100) if loss_invested > 0 else 0.0,
             "Net P&L (₹)": loss_net,
@@ -1091,23 +1091,20 @@ if not df.empty:
 
         render_df = df_table[display_cols].copy()
 
-        currency_cols = [
-            "Avg Buy (₹)",
-            "Invested (₹)",
-            "LTP (₹)",
-            "Current Val (₹)",
-            lbl_sl,
-            lbl_tsl,
-            lbl_t1,
-            lbl_t2,
-            "Expenses (₹)",
-        ]
-        for col in currency_cols:
+        # Retain 2 decimals strictly for Price columns; round non-price totals to whole numbers
+        price_cols = ["Avg Buy (₹)", "LTP (₹)", lbl_sl, lbl_tsl, lbl_t1, lbl_t2]
+        integer_total_cols = ["Invested (₹)", "Current Val (₹)", "Expenses (₹)"]
+
+        for col in price_cols:
             if col in render_df.columns:
                 render_df[col] = render_df[col].apply(
-                    lambda x: f"₹{x:,.2f}"
-                    if pd.notnull(x) and isinstance(x, (int, float))
-                    else "-"
+                    lambda x: f"₹{x:,.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
+                )
+
+        for col in integer_total_cols:
+            if col in render_df.columns:
+                render_df[col] = render_df[col].apply(
+                    lambda x: f"₹{round(x):,}" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
                 )
 
         if "Weight (%)" in render_df.columns:
@@ -1147,7 +1144,13 @@ if not df.empty:
                         else APP_CONFIG["COLORS"]["LOSS_RED"]
                     )
                     sign_val = "+" if val >= 0 else ""
-                    val = f"{sign_val}₹{val:,.2f}" if "₹" in col else f"{val:+.2f}%"
+                    
+                    if "₹" in col:
+                        # Round Gross & Net P&L to whole integers for main table display
+                        val = f"{sign_val}₹{abs(round(val)):,}" if val >= 0 else f"-₹{abs(round(val)):,}"
+                    else:
+                        val = f"{val:+.2f}%"
+                        
                     cell_style = f"color: {color}; font-weight: bold;"
                 elif val is None:
                     val = "-"
@@ -1410,7 +1413,7 @@ def create_candlestick_chart(row):
 
             badge_text = (
                 f" <b>{item['name']}</b> | "
-                f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{level_net_pnl:,.2f} ({level_net_pct:+.1f}%)</b></span> "
+                f"<span style='color:{lvl_color};'><b>{lvl_sign}₹{round(level_net_pnl):,} ({level_net_pct:+.1f}%)</b></span> "
             )
             border_c = item["color"]
             text_c = item["color"]
@@ -1453,7 +1456,7 @@ def create_candlestick_chart(row):
     if ltp_item:
         badge_text_ltp = (
             f" <b>{lbl_ltp}</b> | "
-            f"<span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{ltp_net_pnl:,.2f} ({ltp_net_pct:+.1f}%)</b></span> "
+            f"<span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{round(ltp_net_pnl):,} ({ltp_net_pct:+.1f}%)</b></span> "
         )
 
         y_anchor_ltp = "bottom" if prices_are_close else "middle"
@@ -1504,7 +1507,7 @@ def create_candlestick_chart(row):
 
     fig.update_layout(
         title=dict(
-            text=f"<b>{row['Symbol']}</b> [{trade_type}] ({row['Status']}) | P&L: <span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{ltp_net_pnl:,.2f} ({ltp_net_pct:+.1f}%)</b></span>",
+            text=f"<b>{row['Symbol']}</b> [{trade_type}] ({row['Status']}) | P&L: <span style='color:{ltp_net_color};'><b>{ltp_net_sign}₹{round(ltp_net_pnl):,} ({ltp_net_pct:+.1f}%)</b></span>",
             font=dict(size=c_title_size),
         ),
         xaxis=dict(
@@ -1612,7 +1615,7 @@ if st.session_state.is_pnl_detached:
                 <div>
                     <div class="sticky-pnl-label">NET P&L</div>
                     <div class="sticky-pnl-val">
-                        {format_compact_inr(tot_net_pnl)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
+                        {format_compact_inr(tot_net_pnl, decimals=0)} <span style="font-size: 0.95rem;">({sign}{tot_net_pnl_pct:.2f}%)</span>
                     </div>
                 </div>
                 <a href="?dock_pnl=true" target="_self" class="dock-link-btn" title="Dock Back to Header">↙</a>
