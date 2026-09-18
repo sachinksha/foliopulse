@@ -2,6 +2,9 @@
 
 **FolioPulse** is a lightweight, real-time stock portfolio tracker and visual risk-monitoring engine built with Python, Streamlit, Plotly, and Firebase. Designed specifically for Indian stock market investors and swing traders, FolioPulse offers live intraday P&L calculations, automated Zerodha expense/tax deductions, and interactive candlestick charts layered with risk levels (Stop-Loss, Trailing-SL, Targets).
 
+## Live here
+https://foliopulse.streamlit.app/
+
 ---
 
 ## ✨ Key Features
