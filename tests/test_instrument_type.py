@@ -1,5 +1,5 @@
 import pytest
-from expense_calculator import (
+from foliopulse.expenses import (
     INSTRUMENT_EQUITY,
     INSTRUMENT_MUTUAL_FUND,
     INSTRUMENT_SIF,
