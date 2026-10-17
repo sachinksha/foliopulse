@@ -1,6 +1,15 @@
 import math
 
 
+INSTRUMENT_EQUITY = "EQUITY"
+INSTRUMENT_MUTUAL_FUND = "MUTUAL_FUND"
+INSTRUMENT_SIF = "SIF"
+INSTRUMENT_TYPES = (INSTRUMENT_EQUITY, INSTRUMENT_MUTUAL_FUND, INSTRUMENT_SIF)
+
+# Instruments on which Zerodha equity brokerage/levies/DP charges do not apply.
+NO_EQUITY_CHARGES_INSTRUMENTS = frozenset({INSTRUMENT_MUTUAL_FUND, INSTRUMENT_SIF})
+
+
 def _round_nearest_rupee(value: float) -> float:
     return float(round(value))
 
@@ -9,8 +18,32 @@ def _round_two_decimals(value: float) -> float:
     return round(value + 1e-9, 2)
 
 
+def _no_charges_result(qty: int, buy_price: float, sell_price: float) -> dict:
+    """Result for instruments (mutual funds, SIFs) with no Zerodha equity charges."""
+    qty = abs(int(qty))
+    gross_pnl = round(qty * sell_price - qty * buy_price, 2)
+    return {
+        "brokerage": 0.0,
+        "stamp_duty": 0.0,
+        "stt": 0.0,
+        "sebi_fee": 0.0,
+        "txn_charges": 0.0,
+        "gst": 0.0,
+        "contract_note_charges": 0.0,
+        "dp_charges": 0.0,
+        "total_expenses": 0.0,
+        "breakeven_price": round(buy_price, 2),
+        "gross_pnl": gross_pnl,
+        "net_pnl": gross_pnl,
+    }
+
+
 def compute_trade_expenses_detailed(
-    qty: int, buy_price: float, sell_price: float, trade_type: str = "DELIVERY"
+    qty: int,
+    buy_price: float,
+    sell_price: float,
+    trade_type: str = "DELIVERY",
+    instrument_type: str = INSTRUMENT_EQUITY,
 ) -> dict:
     if qty <= 0 or buy_price <= 0:
         return {
@@ -31,6 +64,10 @@ def compute_trade_expenses_detailed(
     qty = abs(int(qty))
     buy_price = float(buy_price)
     sell_price = float(sell_price)
+
+    if str(instrument_type or INSTRUMENT_EQUITY).upper().strip() in NO_EQUITY_CHARGES_INSTRUMENTS:
+        return _no_charges_result(qty, buy_price, sell_price)
+
     is_intraday = trade_type.upper().strip() == "INTRADAY"
 
     buy_turnover = round(qty * buy_price, 2)
@@ -116,6 +153,7 @@ def price_for_target_net_pnl_pct(
     buy_price: float,
     target_net_pct: float = 0.0,
     trade_type: str = "DELIVERY",
+    instrument_type: str = INSTRUMENT_EQUITY,
     **kwargs
 ) -> float:
     """Calculates target sell price required to achieve a desired net P&L percentage after trade expenses."""
@@ -129,7 +167,7 @@ def price_for_target_net_pnl_pct(
 
     # Iterative convergence for exact target price inclusive of expenses
     for _ in range(10):
-        exp = compute_trade_expenses_detailed(qty, buy_price, sell_price, trade_type)
+        exp = compute_trade_expenses_detailed(qty, buy_price, sell_price, trade_type, instrument_type)
         gross_pnl = (sell_price - buy_price) * qty
         current_net_pct = ((gross_pnl - exp["total_expenses"]) / (buy_price * qty)) * 100.0
         diff = target_net_pct - current_net_pct

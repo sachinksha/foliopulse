@@ -11,7 +11,13 @@ import streamlit as st
 import yfinance as yf
 from streamlit_autorefresh import st_autorefresh
 
-from expense_calculator import compute_trade_expenses_detailed, price_for_target_net_pnl_pct
+from expense_calculator import (
+    INSTRUMENT_EQUITY,
+    INSTRUMENT_MUTUAL_FUND,
+    INSTRUMENT_TYPES,
+    compute_trade_expenses_detailed,
+    price_for_target_net_pnl_pct,
+)
 
 # =========================================================
 # CENTRALIZED CONFIG: LABELS, COLORS, AND THEME CONSTANTS
@@ -318,6 +324,19 @@ def is_market_open():
     else:
         return False, "Post-Market (Closed 03:30 PM)"
 
+# Yahoo quoteType values that map onto our instrument flag. SIFs are not labelled
+# by Yahoo, so they can only be chosen manually.
+YAHOO_QUOTE_TYPE_TO_INSTRUMENT = {"MUTUALFUND": INSTRUMENT_MUTUAL_FUND}
+
+
+def instrument_from_quote_type(quote_type) -> str:
+    return YAHOO_QUOTE_TYPE_TO_INSTRUMENT.get(str(quote_type or "").upper(), INSTRUMENT_EQUITY)
+
+
+def _instrument_index(value) -> int:
+    return INSTRUMENT_TYPES.index(value) if value in INSTRUMENT_TYPES else 0
+
+
 @st.cache_data(ttl=300)
 def search_ticker_symbols(query):
     if not query or len(query.strip()) < 2:
@@ -335,6 +354,7 @@ def search_ticker_symbols(query):
                     {
                         "symbol": symbol,
                         "display": f"{shortname} ({symbol}) — {exch}",
+                        "quote_type": q.get("quoteType") or "",
                     }
                 )
         return results
@@ -435,11 +455,16 @@ def open_watchlist_manager():
                     st.rerun()
 
             curr_trade_type = item.get("trade_type", "DELIVERY")
+            curr_instrument = item.get("instrument_type", INSTRUMENT_EQUITY)
 
             if is_editing:
                 edit_sym = c_sym.text_input("Symbol", value=item["symbol"], key=f"edit_sym_{i}")
                 edit_type = c_type.selectbox(
                     "Type", options=["DELIVERY", "INTRADAY"], index=0 if curr_trade_type == "DELIVERY" else 1, key=f"edit_ttype_{i}"
+                )
+                edit_instrument = c_type.selectbox(
+                    "Instrument", options=INSTRUMENT_TYPES,
+                    index=_instrument_index(curr_instrument), key=f"edit_instr_{i}",
                 )
                 edit_buy = c_buy.number_input("Buy", value=float(item["avg_buy_price"]), step=1.0, key=f"edit_buy_{i}")
                 edit_qty = c_qty.number_input("Qty", value=int(item["quantity"]), step=1, key=f"edit_qty_{i}")
@@ -460,6 +485,7 @@ def open_watchlist_manager():
                         watchlist[i] = {
                             "symbol": edit_sym.upper().strip(),
                             "trade_type": edit_type,
+                            "instrument_type": edit_instrument,
                             "avg_buy_price": float(edit_buy),
                             "quantity": int(edit_qty),
                             "stop_loss": float(edit_sl),
@@ -485,6 +511,8 @@ def open_watchlist_manager():
                 c_sym.markdown(f"**{i+1}. {sym_clean}**")
                 
                 type_badge = "📦 Delivery" if curr_trade_type == "DELIVERY" else "⚡ Intraday"
+                if curr_instrument != INSTRUMENT_EQUITY:
+                    type_badge += f" · {curr_instrument.replace('_', ' ').title()}"
                 c_type.markdown(f"<small><b>{type_badge}</b></small>", unsafe_allow_html=True)
                 
                 c_buy.markdown(f"₹{item['avg_buy_price']:,.2f}")
@@ -511,15 +539,26 @@ def open_watchlist_manager():
     search_query = st.text_input("Search Symbol or Company Name", key="script_search_input")
 
     selected_symbol = ""
+    selected_quote_type = ""
     if search_query:
         search_results = search_ticker_symbols(search_query)
         if search_results:
-            options_dict = {item["display"]: item["symbol"] for item in search_results}
+            options_dict = {item["display"]: item for item in search_results}
             selected_display = st.selectbox("Select matching script:", options=list(options_dict.keys()))
-            selected_symbol = options_dict[selected_display]
+            chosen = options_dict[selected_display]
+            selected_symbol = chosen["symbol"]
+            selected_quote_type = chosen.get("quote_type", "")
         else:
             st.warning("No ticker results found. Enter ticker manually below.")
             selected_symbol = search_query.upper().strip()
+
+    add_instrument = st.selectbox(
+        "Instrument",
+        options=INSTRUMENT_TYPES,
+        index=_instrument_index(instrument_from_quote_type(selected_quote_type)),
+        key=f"add_instr_{selected_symbol}",
+        help="Mutual funds and SIFs skip Zerodha equity charges. Yahoo does not label SIFs, so pick SIF manually.",
+    )
 
     ac1, ac2, ac3, ac4 = st.columns(4)
     add_type = ac1.selectbox("Trade Type", options=["DELIVERY", "INTRADAY"], index=0, key="add_script_type")
@@ -527,9 +566,11 @@ def open_watchlist_manager():
     add_qty = ac3.number_input("Quantity", min_value=1, value=10, step=1, key="add_script_qty")
     add_mltp = ac4.number_input("Manual LTP (₹)", min_value=0.0, step=1.0, key="add_script_mltp")
 
-    suggested_sl = price_for_target_net_pnl_pct(int(add_qty), float(add_buy), -2, add_type)
-    suggested_t1 = price_for_target_net_pnl_pct(int(add_qty), float(add_buy), 5, add_type)
-    preview_breakeven = compute_trade_expenses_detailed(int(add_qty), float(add_buy), float(add_buy), add_type)["breakeven_price"]
+    suggested_sl = price_for_target_net_pnl_pct(int(add_qty), float(add_buy), -2, add_type, add_instrument)
+    suggested_t1 = price_for_target_net_pnl_pct(int(add_qty), float(add_buy), 5, add_type, add_instrument)
+    preview_breakeven = compute_trade_expenses_detailed(
+        int(add_qty), float(add_buy), float(add_buy), add_type, add_instrument
+    )["breakeven_price"]
 
     if add_buy > 0:
         st.caption(
@@ -561,6 +602,7 @@ def open_watchlist_manager():
             new_item = {
                 "symbol": add_sym.upper().strip(),
                 "trade_type": add_type,
+                "instrument_type": add_instrument,
                 "avg_buy_price": float(add_buy),
                 "quantity": int(add_qty),
                 "stop_loss": float(add_sl),
@@ -737,7 +779,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
     lbl_t2 = APP_CONFIG["LABELS"]["T2"]
 
     all_cols = [
-        "Symbol", "RawSymbol", "Type", "Status", "Qty", "Avg Buy (₹)", "Invested (₹)",
+        "Symbol", "RawSymbol", "Type", "Instrument", "Status", "Qty", "Avg Buy (₹)", "Invested (₹)",
         "LTP (₹)", "Current Val (₹)", "Weight (%)", lbl_sl, lbl_tsl, lbl_t1, lbl_t2,
         "Day's Gain/Loss", "Day's Gain/Loss (%)", "Expenses (₹)", "Gross P&L (₹)",
         "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)", "Raw_DayPnL", "Raw_PnL",
@@ -756,6 +798,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
         buy_price = float(item["avg_buy_price"])
         qty = int(item["quantity"])
         trade_type = item.get("trade_type", "DELIVERY")
+        instrument = item.get("instrument_type", INSTRUMENT_EQUITY)
         sl = float(item.get("stop_loss", 0.0))
         tsl = float(item.get("trailing_sl", 0.0))
         t1 = float(item.get("target_1", 0.0))
@@ -788,7 +831,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 status = "🔴 Stale"
                 fetch_errors.append(f"**{sym}**: {err}")
 
-        exp_data = compute_trade_expenses_detailed(qty, buy_price, ltp, trade_type)
+        exp_data = compute_trade_expenses_detailed(qty, buy_price, ltp, trade_type, instrument)
         total_exp = exp_data["total_expenses"]
 
         day_pnl = (ltp - prev_close) * qty if prev_close > 0 else 0.0
@@ -808,6 +851,7 @@ def fetch_portfolio_data(watchlist, use_manual_override):
                 "Symbol": sym.replace(".NS", ""),
                 "RawSymbol": sym,
                 "Type": trade_type,
+                "Instrument": instrument,
                 "Status": status,
                 "Qty": qty,
                 "Avg Buy (₹)": buy_price,
@@ -1278,12 +1322,13 @@ def create_candlestick_chart(row):
     ltp_val = float(row.get("LTP (₹)", 0.0))
     qty = int(row.get("Qty", 0))
     trade_type = str(row.get("Type", "DELIVERY")).upper().strip()
+    instrument = str(row.get("Instrument", INSTRUMENT_EQUITY)).upper().strip()
 
     invested = buy_val * qty
 
-    breakeven_val = compute_trade_expenses_detailed(qty, buy_val, buy_val, trade_type)["breakeven_price"]
+    breakeven_val = compute_trade_expenses_detailed(qty, buy_val, buy_val, trade_type, instrument)["breakeven_price"]
 
-    ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type)
+    ltp_exp_details = compute_trade_expenses_detailed(qty, buy_val, ltp_val, trade_type, instrument)
     ltp_net_pnl = ((ltp_val * qty) - invested) - ltp_exp_details["total_expenses"]
     ltp_net_pct = (ltp_net_pnl / invested * 100) if invested > 0 else 0.0
 
@@ -1399,7 +1444,7 @@ def create_candlestick_chart(row):
             else:
                 y_anchor_buy = "middle"
         else:
-            level_exp_details = compute_trade_expenses_detailed(qty, buy_val, item["val"], trade_type)
+            level_exp_details = compute_trade_expenses_detailed(qty, buy_val, item["val"], trade_type, instrument)
             level_gross_pnl = (item["val"] - buy_val) * qty
             level_net_pnl = level_gross_pnl - level_exp_details["total_expenses"]
             level_net_pct = (level_net_pnl / invested * 100) if invested > 0 else 0.0
