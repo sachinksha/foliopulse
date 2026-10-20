@@ -11,7 +11,7 @@ from foliopulse.expenses import (
     compute_trade_expenses_detailed,
     price_for_target_net_pnl_pct,
 )
-from foliopulse.models import instrument_from_quote_type, instrument_index
+from foliopulse.models import instrument_from_quote_type, instrument_index, preserved_chart_flag
 
 
 @st.dialog("🛠️ Watchlist & Script Sequence Manager", width="large")
@@ -119,6 +119,7 @@ def open_watchlist_manager(save_config, search_ticker_symbols):
                             "target_1": float(edit_t1),
                             "target_2": float(edit_t2),
                             "manual_ltp": float(edit_manual_ltp),
+                            **preserved_chart_flag(item),
                         }
                         st.session_state.config["watchlist"] = watchlist
                         save_config(st.session_state.config)
