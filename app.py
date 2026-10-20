@@ -16,6 +16,7 @@ from foliopulse.models import Holding, set_chart_visibility
 from foliopulse.portfolio import build_portfolio
 from foliopulse.storage import ConfigStore
 from foliopulse.ui.theme import dashboard_css
+from foliopulse.ui.portfolio_table import render_portfolio_table
 from foliopulse.ui.watchlist_manager import open_watchlist_manager
 
 # --- LOGGING SETUP ---
@@ -449,148 +450,14 @@ if not df.empty:
         df_table = df.copy()
 
     if st.session_state.show_table:
-        if st.session_state.table_view_preset == "🔍 Main Focus View":
-            display_cols = [
-                "Symbol",
-                "Qty",
-                "Avg Buy (₹)",
-                "LTP (₹)",
-                "Net P&L (₹)",
-                "Net P&L (%)",
-            ]
-        else:
-            display_cols = [
-                "Symbol",
-                "Type",
-                "Qty",
-                "Avg Buy (₹)",
-                "Invested (₹)",
-                "LTP (₹)",
-                "Current Val (₹)",
-                "Weight (%)",
-                lbl_sl,
-                lbl_tsl,
-                lbl_t1,
-                lbl_t2,
-                "Expenses (₹)",
-                "Gross P&L (₹)",
-                "Gross P&L (%)",
-                "Net P&L (₹)",
-                "Net P&L (%)",
-            ]
-
-        render_df = df_table[display_cols].copy()
-
-        # Retain 2 decimals strictly for Price columns; round non-price totals to whole numbers
-        price_cols = ["Avg Buy (₹)", "LTP (₹)", lbl_sl, lbl_tsl, lbl_t1, lbl_t2]
-        integer_total_cols = ["Invested (₹)", "Current Val (₹)", "Expenses (₹)"]
-
-        for col in price_cols:
-            if col in render_df.columns:
-                render_df[col] = render_df[col].apply(
-                    lambda x: f"₹{x:,.2f}" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
-                )
-
-        for col in integer_total_cols:
-            if col in render_df.columns:
-                render_df[col] = render_df[col].apply(
-                    lambda x: f"₹{round(x):,}" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
-                )
-
-        if "Weight (%)" in render_df.columns:
-            render_df["Weight (%)"] = render_df["Weight (%)"].apply(
-                lambda x: f"{x:.1f}%" if pd.notnull(x) and isinstance(x, (int, float)) else "-"
-            )
-
-        tbl_font_rem = round(0.9 * fs_table, 2)
-        tbl_header_rem = round(0.95 * fs_table, 2)
-        padding_v = round(0.3 * fs_table, 2)
-
-        html_rows = []
-        header_cells = "".join([f"<th>{col}</th>" for col in display_cols])
-        html_rows.append(f"<thead><tr>{header_cells}</tr></thead>")
-
-        html_rows.append("<tbody>")
-        for idx, row in render_df.iterrows():
-            row_cells = []
-            is_summary = df_table.loc[idx, "Status"] == "Summary" if "Status" in df_table.columns else False
-            row_bg = (
-                f"background-color: {APP_CONFIG['COLORS']['BG_CARD']}; font-weight: bold;"
-                if is_summary
-                else ""
-            )
-
-            for col in display_cols:
-                val = row[col]
-                cell_style = ""
-
-                if col == "Type" and val in ["DELIVERY", "INTRADAY"]:
-                    val = f"<span style='font-size:0.8em; padding:2px 5px; border-radius:3px; background-color:#1E293B; color:#A1A1AA;'>{val}</span>"
-
-                elif col in ["Gross P&L (₹)", "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)"] and isinstance(val, (int, float)):
-                    color = (
-                        APP_CONFIG["COLORS"]["PROFIT_GREEN"]
-                        if val >= 0
-                        else APP_CONFIG["COLORS"]["LOSS_RED"]
-                    )
-                    sign_val = "+" if val >= 0 else ""
-                    
-                    if "₹" in col:
-                        # Round Gross & Net P&L to whole integers for main table display
-                        val = f"{sign_val}₹{abs(round(val)):,}" if val >= 0 else f"-₹{abs(round(val)):,}"
-                    else:
-                        val = f"{val:+.2f}%"
-                        
-                    cell_style = f"color: {color}; font-weight: bold;"
-                elif val is None:
-                    val = "-"
-
-                row_cells.append(f"<td style='{cell_style}'>{val}</td>")
-
-            html_rows.append(f"<tr style='{row_bg}'>{''.join(row_cells)}</tr>")
-
-        html_rows.append("</tbody>")
-
-        full_html_table = f"""
-        <style>
-            .tv-portfolio-table {{
-                width: 100%;
-                border-collapse: collapse;
-                margin-bottom: 0.2rem;
-                background-color: {APP_CONFIG["COLORS"]["BG_DARK"]};
-                color: #FFFFFF;
-                font-family: Source Sans Pro, sans-serif;
-            }}
-            .tv-portfolio-table th {{
-                background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
-                color: {APP_CONFIG["COLORS"]["TEXT_MUTED"]};
-                font-size: {tbl_header_rem}rem !important;
-                font-weight: 800;
-                padding: {padding_v}rem 0.5rem !important;
-                text-align: left;
-                border-bottom: 2px solid {APP_CONFIG["COLORS"]["HEADER_BORDER"]};
-                white-space: nowrap;
-            }}
-            .tv-portfolio-table td {{
-                font-size: {tbl_font_rem}rem !important;
-                padding: {padding_v}rem 0.5rem !important;
-                border-bottom: 1px solid {APP_CONFIG["COLORS"]["HEADER_BG"]};
-                white-space: nowrap;
-            }}
-            .tv-portfolio-table tr:hover {{
-                background-color: {APP_CONFIG["COLORS"]["HEADER_BG"]};
-            }}
-        </style>
-        <div style="overflow-x: auto; width: 100%;">
-            <table class="tv-portfolio-table">
-                {"".join(html_rows)}
-            </table>
-        </div>
-        """
-
         with st.expander("📋 Main Portfolio Table", expanded=True):
-            st.markdown(full_html_table, unsafe_allow_html=True)
-            
+            render_portfolio_table(
+                df_table,
+                st.session_state.table_view_preset,
+                fs_table,
+                _on_chart_toggle,
+            )
+
 # --- STREAMLINED EOD JOURNAL EXPORT ---
 if not df.empty:
     st.sidebar.divider()
@@ -627,31 +494,16 @@ if st.sidebar.button("🔄 Force Data Refresh", type="secondary", use_container_
 
 # --- CHARTS RENDER SECTION ---
 if not df.empty:
-    stock_rows_only = df[df["Status"] != "Summary"]
-    num_cols = chart_cols_per_row
-
-    # Each grid cell holds its script's visibility toggle above its chart. The widget key
-    # includes the current state, so the toggle always matches the saved config.
-    rows_list = list(stock_rows_only.iterrows())
-    for start_idx in range(0, len(rows_list), num_cols):
-        grid_cols = st.columns(num_cols)
-        for col, (_, row) in zip(grid_cols, rows_list[start_idx:start_idx + num_cols]):
-            symbol = row["RawSymbol"]
-            visible = bool(row["Show Chart"])
-            widget_key = f"chart_toggle_{symbol}_{int(visible)}"
-            with col:
-                st.toggle(
-                    f"📈 {row['Symbol']} chart",
-                    value=visible,
-                    key=widget_key,
-                    on_change=_on_chart_toggle,
-                    args=(symbol, widget_key),
+    visible_rows = df[(df["Status"] != "Summary") & (df["Show Chart"])]
+    if not visible_rows.empty:
+        num_cols = chart_cols_per_row
+        cols = st.columns(num_cols)
+        for idx, (_, row) in enumerate(visible_rows.iterrows()):
+            with cols[idx % num_cols]:
+                st.plotly_chart(
+                    create_candlestick_chart(row, font_scale=fs_chart, auto_zoom=auto_zoom_risk_range),
+                    use_container_width=True,
                 )
-                if visible:
-                    st.plotly_chart(
-                        create_candlestick_chart(row, font_scale=fs_chart, auto_zoom=auto_zoom_risk_range),
-                        use_container_width=True,
-                    )
 
 # =========================================================
 # FLOATING BOTTOM-RIGHT STICKY CARD (RENDERED AT VERY END)
