@@ -24,7 +24,7 @@ def portfolio_columns() -> list[str]:
         "LTP (₹)", "Current Val (₹)", "Weight (%)", labels["SL"], labels["TSL"], labels["T1"], labels["T2"],
         "Day's Gain/Loss", "Day's Gain/Loss (%)", "Expenses (₹)", "Gross P&L (₹)",
         "Gross P&L (%)", "Net P&L (₹)", "Net P&L (%)", "Raw_DayPnL", "Raw_PnL",
-        "Raw_NetPnL", "Raw_Expenses", "Raw_Invested", "Raw_Current", "df_10d",
+        "Raw_NetPnL", "Raw_Expenses", "Raw_Invested", "Raw_Current", "df_10d", "Show Chart",
     ]
 
 
@@ -90,6 +90,7 @@ def build_row(
         "Raw_Invested": invested,
         "Raw_Current": current,
         "df_10d": df_10d,
+        "Show Chart": holding.chart_visible,
     }
 
 

@@ -12,7 +12,7 @@ from foliopulse.config import APP_CONFIG
 from foliopulse.formatting import format_compact_inr
 from foliopulse.market_data import MARKET_INDICES, fetch_index_quotes, get_history, search_symbols
 from foliopulse.market_hours import is_market_open
-from foliopulse.models import Holding
+from foliopulse.models import Holding, set_chart_visibility
 from foliopulse.portfolio import build_portfolio
 from foliopulse.storage import ConfigStore
 from foliopulse.ui.theme import dashboard_css
@@ -101,6 +101,13 @@ def save_config(config_dict):
         store.save(user_email, config_dict)
     except Exception as e:
         st.error(f"Failed to sync with cloud: {e}")
+
+
+def _on_chart_toggle(symbol, widget_key):
+    """Persist a chart visibility change made on the dashboard."""
+    visible = bool(st.session_state[widget_key])
+    if set_chart_visibility(st.session_state.config.get("watchlist", []), symbol, visible):
+        save_config(st.session_state.config)
 
 
 if "config" not in st.session_state:
@@ -621,16 +628,35 @@ if st.sidebar.button("🔄 Force Data Refresh", type="secondary", use_container_
 # --- CHARTS RENDER SECTION ---
 if not df.empty:
     stock_rows_only = df[df["Status"] != "Summary"]
-
     num_cols = chart_cols_per_row
-    cols = st.columns(num_cols)
-    for idx, (_, row) in enumerate(stock_rows_only.iterrows()):
-        col_idx = idx % num_cols
-        with cols[col_idx]:
-            st.plotly_chart(
-                create_candlestick_chart(row, font_scale=fs_chart, auto_zoom=auto_zoom_risk_range),
-                use_container_width=True,
+
+    # One visibility toggle per script. The key includes the current state so the
+    # widget always matches the saved config, even after an edit elsewhere.
+    toggle_rows = list(stock_rows_only.iterrows())
+    for start in range(0, len(toggle_rows), num_cols):
+        toggle_cols = st.columns(num_cols)
+        for col, (_, row) in zip(toggle_cols, toggle_rows[start:start + num_cols]):
+            symbol = row["RawSymbol"]
+            visible = bool(row["Show Chart"])
+            widget_key = f"chart_toggle_{symbol}_{int(visible)}"
+            col.toggle(
+                f"📈 {row['Symbol']} chart",
+                value=visible,
+                key=widget_key,
+                on_change=_on_chart_toggle,
+                args=(symbol, widget_key),
             )
+
+    visible_rows = stock_rows_only[stock_rows_only["Show Chart"]]
+    if not visible_rows.empty:
+        cols = st.columns(num_cols)
+        for idx, (_, row) in enumerate(visible_rows.iterrows()):
+            col_idx = idx % num_cols
+            with cols[col_idx]:
+                st.plotly_chart(
+                    create_candlestick_chart(row, font_scale=fs_chart, auto_zoom=auto_zoom_risk_range),
+                    use_container_width=True,
+                )
 
 # =========================================================
 # FLOATING BOTTOM-RIGHT STICKY CARD (RENDERED AT VERY END)
