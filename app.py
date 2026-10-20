@@ -630,33 +630,28 @@ if not df.empty:
     stock_rows_only = df[df["Status"] != "Summary"]
     num_cols = chart_cols_per_row
 
-    # One visibility toggle per script. The key includes the current state so the
-    # widget always matches the saved config, even after an edit elsewhere.
-    toggle_rows = list(stock_rows_only.iterrows())
-    for start in range(0, len(toggle_rows), num_cols):
-        toggle_cols = st.columns(num_cols)
-        for col, (_, row) in zip(toggle_cols, toggle_rows[start:start + num_cols]):
+    # Each grid cell holds its script's visibility toggle above its chart. The widget key
+    # includes the current state, so the toggle always matches the saved config.
+    rows_list = list(stock_rows_only.iterrows())
+    for start_idx in range(0, len(rows_list), num_cols):
+        grid_cols = st.columns(num_cols)
+        for col, (_, row) in zip(grid_cols, rows_list[start_idx:start_idx + num_cols]):
             symbol = row["RawSymbol"]
             visible = bool(row["Show Chart"])
             widget_key = f"chart_toggle_{symbol}_{int(visible)}"
-            col.toggle(
-                f"📈 {row['Symbol']} chart",
-                value=visible,
-                key=widget_key,
-                on_change=_on_chart_toggle,
-                args=(symbol, widget_key),
-            )
-
-    visible_rows = stock_rows_only[stock_rows_only["Show Chart"]]
-    if not visible_rows.empty:
-        cols = st.columns(num_cols)
-        for idx, (_, row) in enumerate(visible_rows.iterrows()):
-            col_idx = idx % num_cols
-            with cols[col_idx]:
-                st.plotly_chart(
-                    create_candlestick_chart(row, font_scale=fs_chart, auto_zoom=auto_zoom_risk_range),
-                    use_container_width=True,
+            with col:
+                st.toggle(
+                    f"📈 {row['Symbol']} chart",
+                    value=visible,
+                    key=widget_key,
+                    on_change=_on_chart_toggle,
+                    args=(symbol, widget_key),
                 )
+                if visible:
+                    st.plotly_chart(
+                        create_candlestick_chart(row, font_scale=fs_chart, auto_zoom=auto_zoom_risk_range),
+                        use_container_width=True,
+                    )
 
 # =========================================================
 # FLOATING BOTTOM-RIGHT STICKY CARD (RENDERED AT VERY END)
