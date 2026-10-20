@@ -1,5 +1,5 @@
 import unittest
-from expense_calculator import compute_trade_expenses_detailed, price_for_target_net_pnl_pct
+from foliopulse.expenses import compute_trade_expenses_detailed, price_for_target_net_pnl_pct
 
 
 class TestExpenseCalculator(unittest.TestCase):

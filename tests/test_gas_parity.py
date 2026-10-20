@@ -1,6 +1,6 @@
 import json
 import pytest
-from expense_calculator import compute_trade_expenses_detailed
+from foliopulse.expenses import compute_trade_expenses_detailed
 
 def load_fixtures():
     with open("tests/fixtures/trades.json") as f:

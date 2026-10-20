@@ -1,5 +1,5 @@
 import unittest
-from expense_calculator import compute_trade_expenses_detailed
+from foliopulse.expenses import compute_trade_expenses_detailed
 
 class TestExpenseCalculatorSync(unittest.TestCase):
     def test_delivery_trade_asianpaint(self):
